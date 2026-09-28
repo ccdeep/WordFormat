@@ -111,8 +111,9 @@ wordf gj (generate JSON)          wordf cf / wordf af (check/apply format)
 **Phase 3 — Matching & formatting** (`pipeline/stages.py`):
 - Each paragraph in the document is matched to a tree node by position order: `_flatten_tree_nodes()` converts the tree to a flat DFS list, then `zip()` pairs nodes with `document.paragraphs` by index.
 - Before formatting, `node.apply_replace(doc)` checks for a `replace` field in the JSON value dict; if present, it substitutes the paragraph's run text with the replacement string.
-- The tree is also mutated: `promote_bodytext_in_subtrees_of_type()` replaces generic `body_text` nodes under specific parents (e.g. `AbstractTitleCN`) with typed content nodes (e.g. `AbstractContentCN`).
-- `apply_format_check_to_all_nodes()` recursively traverses the tree. For each node it calls `node.check_format(doc)` or `node.apply_format(doc)`, which delegate to `node._base(doc, p, r)` — the boolean flags control whether paragraph styles (`p`) and run styles (`r`) are checked (diffed) or applied (written).
+- The tree is also mutated by hook callbacks: the thesis domain registers `thesis.tree_normalize` on `on_tree_normalize`, which calls `promote_bodytext_in_subtrees_of_type()` to replace generic `body_text` nodes under specific parents (e.g. `AbstractTitleCN`) with typed content nodes (e.g. `AbstractContentCN`).
+- `apply_format_check_to_all_nodes()` recursively traverses the tree. Around each node it emits `before_node_format` / `after_node_format` hooks; the thesis domain's `thesis.caption_numbering` consumes `before_node_format` to maintain chapter/figure/table counters and inject `chapter_number` into caption node values.
+- For each node it calls `node.check_format(doc)` or `node.apply_format(doc)`, which delegate to `node._base(doc, p, r)` — the boolean flags control whether paragraph styles (`p`) and run styles (`r`) are checked (diffed) or applied (written).
 
 **Phase 4 — Numbering** (apply mode only, `numbering.py`):
 - `process_heading_numbering()` strips manual heading numbers from run text and applies Word auto-numbering definitions.
@@ -124,8 +125,12 @@ wordf gj (generate JSON)          wordf cf / wordf af (check/apply format)
 | `src/wordformat/cli.py` | CLI entry point (`gj`/`cf`/`af`/`tree`/`config`/`startapi` subcommands) |
 | `src/wordformat/classify/tag.py` | Classification entry point: loads doc, calls `DocxBase`, returns JSON |
 | `src/wordformat/base.py` | `DocxBase`: docx loading + ONNX batch inference |
-| `src/wordformat/pipeline/stages.py` | Orchestrator: tree flattening, position-based paragraph matching, subtree promotion, text replace, calls check/apply on each node |
-| `src/wordformat/pipeline/orchestrate.py` | Top-level orchestration: `auto_format_thesis_document()` |
+| `src/wordformat/pipeline/stages.py` | Orchestrator: tree flattening, position-based paragraph matching, text replace, emits hook events, calls check/apply on each node |
+| `src/wordformat/pipeline/orchestrate.py` | Top-level orchestration: `auto_format_thesis_document()`; assembles builtin handlers, document domain, presets into the hook registry |
+| `src/wordformat/hooks.py` | `HookRegistry`: event registration / emitting / unregister; events `on_tree_normalize`, `on_format_begin`, `before_node_format`, `after_node_format`, `on_summary_build`, `before_document_save`, `on_comment` |
+| `src/wordformat/handlers.py` | Builtin (domain-agnostic) mechanisms registered as `builtin.post_process` / `builtin.header_footer` |
+| `src/wordformat/domains/` | Document-domain registry (`@register_domain` / `load_domain` / auto-discovery via pkgutil) and domain assemblies; `domains/thesis.py` holds all thesis-specific logic (tree normalization mappings, caption numbering injection, summary statistics) as `thesis.*` hook callbacks |
+| `src/wordformat/preset_loader.py` | Preset loading: `PRESET_MANIFEST` + `register(hooks)`, loaded after builtin handlers and domain so presets can override anything |
 | `src/wordformat/rules/node.py` | `FormatNode` base class and `TreeNode` |
 | `src/wordformat/rules/abstract.py` | Abstract title/content/title-content nodes (CN + EN) |
 | `src/wordformat/rules/heading.py` | Heading level 1/2/3 nodes (no longer overrides `load_config`) |

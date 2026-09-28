@@ -55,6 +55,12 @@ def export_defaults() -> dict:
     result["template_name"] = "未知模板"
     result["style_checks_warning"] = dataclasses.asdict(WarningConfig())
     result["numbering"] = {"enabled": False}
+    # 页眉页脚配置段（issue#93）：非 FormatNode 的独立段，同样导出供模板配置
+    import copy
+
+    from wordformat.header_footer import DEFAULT_HF_CONFIG
+
+    result["header_footer"] = copy.deepcopy(DEFAULT_HF_CONFIG)
 
     for cls in _registry.values():
         defaults = getattr(cls, "DEFAULTS", {})

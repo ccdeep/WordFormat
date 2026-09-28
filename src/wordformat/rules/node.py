@@ -404,4 +404,12 @@ class FormatNode(TreeNode):
 
     def add_comment(self, doc: Document, runs: Run | Sequence[Run], text: str):
         """追加批注到缓冲区，按锚点 run 分组，flush 时同组合并为一条。"""
+        # 批注 hook：预设可修改批注文案/级别（返回 {"text": ...} 覆盖）
+        from wordformat.hooks import hooks
+
+        if hooks.is_registered("on_comment"):
+            result = hooks.emit(
+                "on_comment", paragraph=self.paragraph, text=text, doc=doc
+            )
+            text = result.get("text", text)
         self._collect_comment(runs, text)

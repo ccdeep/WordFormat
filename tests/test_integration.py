@@ -585,7 +585,7 @@ class TestAutoFormatThesisDocument:
         "wordformat.pipeline.stages.FormattingExecutionStage.apply_format_check_to_all_nodes"
     )
     @mock.patch("wordformat.pipeline.stages.DocumentBuilder")
-    @mock.patch("wordformat.pipeline.stages.promote_bodytext_in_subtrees_of_type")
+    @mock.patch("wordformat.structure.utils.promote_bodytext_in_subtrees_of_type")
     def test_promote_called_for_subtrees(
         self, mock_promote, mock_builder, mock_apply, temp_docx, config_path, tmp_path
     ):
@@ -1500,7 +1500,7 @@ class TestSetStyleAdditionalCoverage:
         "wordformat.pipeline.stages.FormattingExecutionStage.apply_format_check_to_all_nodes"
     )
     @mock.patch("wordformat.pipeline.stages.DocumentBuilder")
-    @mock.patch("wordformat.pipeline.stages.promote_bodytext_in_subtrees_of_type")
+    @mock.patch("wordformat.structure.utils.promote_bodytext_in_subtrees_of_type")
     def test_promote_called(
         self, mock_promote, mock_builder, mock_apply, temp_docx, config_path, tmp_path
     ):

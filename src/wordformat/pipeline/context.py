@@ -28,6 +28,8 @@ class FormatContext:
     root_node: FormatNode = None
     config_model: dict = field(default_factory=dict)
     output_path: Path | str = ""
+    # 预设（preset）系统：manifest 列表，加载顺序与 CLI --preset 一致
+    preset_manifests: list = field(default_factory=list)
 
 
 class PipelineStage(Protocol):

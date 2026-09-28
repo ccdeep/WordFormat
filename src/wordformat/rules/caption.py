@@ -110,6 +110,13 @@ def _check_caption_numbering(
         )
 
     if issues:
+        # 题注检查 hook：预设可追加自定义题注规则（追加到 issues 或覆写）
+        from wordformat.hooks import hooks
+
+        result = hooks.emit("on_caption_check", node=node, parsed=parsed, issues=issues)
+        issues = result.get("issues", issues)
+
+    if issues:
         node.add_comment(document, paragraph.runs, "\n".join(issues))
 
 

@@ -269,6 +269,20 @@ class TestApplyCaptionNumbering:
 class TestCaptionNumberingIntegration:
     """测试 caption numbering 在 apply_format_check_to_all_nodes 中的集成。"""
 
+    @pytest.fixture(autouse=True)
+    def _thesis_caption_numbering(self):
+        """题注编号注入已迁入论文领域 hook（thesis.caption_numbering）。
+
+        本类直接调用 stage 方法（不经 FormattingExecutionStage.process），
+        需手动装配领域并 emit on_format_begin 重置章节/图序/表序状态。
+        """
+        from wordformat.domains import load_domain
+        from wordformat.hooks import hooks
+
+        load_domain("thesis")
+        hooks.emit("on_format_begin")
+        yield
+
     @pytest.fixture
     def caption_yaml(self, tmp_path):
         """创建带题注编号配置的临时 YAML 文件。"""
@@ -315,7 +329,9 @@ numbering:
         node = MagicMock()
         node.value = {"category": "heading_level_1"}
         node.children = children or []
-        node.paragraph = None
+        # 真实文档树中 heading 必有段落（对齐阶段保证 1:1）；
+        # 章节号递增依赖该节点触发 before_node_format 事件
+        node.paragraph = MagicMock()
         return node
 
     def _make_caption_figure(self, paragraph):
@@ -497,6 +513,7 @@ numbering:
         root.value = {"category": "top"}
         root.children = [h1, h2]
         root.paragraph = None
+        root.check_format = MagicMock()
 
         config = self._init_config(caption_yaml)
 

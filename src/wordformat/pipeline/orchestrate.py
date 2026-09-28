@@ -17,7 +17,6 @@ from wordformat.pipeline.stages import (
     LoadConfigStage,
     LoadDocxStage,
     ParagraphAlignmentStage,
-    PostProcessingStage,
     StyleDefinitionFixStage,
     SummaryGenerationStage,
     TreeBuildingStage,
@@ -36,6 +35,7 @@ def auto_format_thesis_document(
     configpath: Optional[str] = None,
     savepath: str = "output/",
     check=True,
+    presets: Optional[list] = None,
 ):
     """自动对学位论文文档进行格式校验与批注。
 
@@ -57,6 +57,8 @@ def auto_format_thesis_document(
         savepath (str): 处理完成后带批注的文档保存路径。
         configpath (Optional[str]): 格式规范配置文件（YAML）路径，支持继承与合并。
                                  为 None 时使用内置默认配置。
+        presets (Optional[list]): 预设名列表（presets/ 目录下的 .py 插件），按顺序加载，
+                                 后加载的预设覆盖先加载的。
 
     Side Effects:
         - 读取 jsonpath、docxpath 和 configpath 指定的文件；
@@ -69,7 +71,8 @@ def auto_format_thesis_document(
         ...     jsonpath="thesis_structure.json",
         ...     configpath="format_rules.yaml",
         ...     savepath="output/",
-        ...     check=True
+        ...     check=True,
+        ...     presets=["tsinghua"]
         ... )
     """
 
@@ -80,6 +83,7 @@ def auto_format_thesis_document(
         save_dir=savepath,
         check=check,
     )
+    _prepare_hooks(ctx, presets)
     # 2. 组装流水线
     pipeline: list[PipelineStage] = [
         LoadConfigStage(),
@@ -90,7 +94,6 @@ def auto_format_thesis_document(
         StyleDefinitionFixStage(),
         FormattingExecutionStage(),
         SummaryGenerationStage(),
-        PostProcessingStage(),
         DocumentSavingStage(),
     ]
     for stage in pipeline:
@@ -98,10 +101,35 @@ def auto_format_thesis_document(
     return ctx.output_path
 
 
+def _prepare_hooks(ctx, presets) -> None:
+    """注册内置机制 handlers，并装配默认文档领域（thesis），再加载预设。
+
+    顺序：内置机制 → 文档领域（可覆盖/补充内置逻辑） → 预设（最后注册，
+    可 unregister 禁用前述任何回调）。
+    """
+    from wordformat.domains import load_domain
+    from wordformat.handlers import register_builtin_handlers
+
+    register_builtin_handlers()
+    load_domain("thesis")
+    _load_presets_into_context(ctx, presets)
+
+
+def _load_presets_into_context(ctx, presets) -> None:
+    """加载预设列表：注册 hook 回调，manifest 存入 ctx 供配置合并。"""
+    if not presets:
+        return
+    from wordformat.preset_loader import load_presets
+
+    ctx.preset_manifests = load_presets(list(presets))
+    logger.info(f"已加载预设: {', '.join(presets)}")
+
+
 def md_to_docx(
     md_path: str,
     config_path: str | None = None,
     save_dir: str = "output/",
+    presets: Optional[list] = None,
 ):
     """将 Markdown 文件转换为格式化后的 .docx 文档。
 
@@ -119,6 +147,7 @@ def md_to_docx(
         md_path: Markdown 源文件路径。
         config_path: YAML 格式规范配置文件路径，为 None 时使用内置默认配置。
         save_dir: 输出目录。
+        presets: 预设名列表，按顺序加载（后加载覆盖先加载）。
 
     Returns:
         生成的 .docx 文件路径。
@@ -133,6 +162,7 @@ def md_to_docx(
         save_dir=save_dir,
         check=False,
     )
+    _prepare_hooks(ctx, presets)
 
     pipeline: list[PipelineStage] = [
         LoadConfigStage(),
@@ -142,11 +172,21 @@ def md_to_docx(
         DocumentCreationStage(),
         StyleDefinitionFixStage(),
         FormattingExecutionStage(),
-        PostProcessingStage(),
     ]
 
     for stage in pipeline:
         ctx = stage.process(ctx)
+
+    # 保存前 hook：编号/超链接等机制与预设统一在此执行（复用 before_document_save）
+    from wordformat.hooks import hooks
+
+    hooks.emit(
+        "before_document_save",
+        document=ctx.document,
+        config=ctx.config_model,
+        ctx=ctx,
+        check=False,
+    )
 
     # 重命名输出文件
     ensure_directory_exists(save_dir)

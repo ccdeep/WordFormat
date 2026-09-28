@@ -1109,7 +1109,7 @@ class TestProcessReferenceNumbering:
 
         p = doc.add_paragraph("Some reference text")
         node = ReferenceEntry(
-            value={"category": "body_text", "fingerprint": "abc123"},
+            value={"category": "references_content", "fingerprint": "abc123"},
             level=2,
             paragraph=p,
         )
@@ -1140,7 +1140,7 @@ class TestProcessReferenceNumbering:
 
         p = doc.add_paragraph("[1] Some reference text")
         node = ReferenceEntry(
-            value={"category": "body_text", "fingerprint": "abc456"},
+            value={"category": "references_content", "fingerprint": "abc456"},
             level=2,
             paragraph=p,
         )

@@ -92,6 +92,7 @@ wordf tree  查看文档结构树
 wordf config  查看所有可配置字段
 wordf md    Markdown 转 Docx
 wordf startapi    启动API服务
+wordf list-presets  列出可用预设（--preset 名称加载）
 
 【一键示例】
 wordf gj -d 论文.docx -c config.yaml -o output/
@@ -156,6 +157,12 @@ wordf startapi -H 127.0.0.1 -p 8000
         help="JSON文件路径",
     )
     p_cf.add_argument("-o", default="output/", help="输出目录")
+    p_cf.add_argument(
+        "--preset",
+        action="append",
+        default=None,
+        help="预设名（presets/ 目录下的 .py，可多次指定，后者覆盖前者）",
+    )
 
     # ------------------------------
     # 3. af = 格式化
@@ -180,6 +187,12 @@ wordf startapi -H 127.0.0.1 -p 8000
         help="JSON文件路径",
     )
     p_af.add_argument("-o", default="output/", help="输出目录")
+    p_af.add_argument(
+        "--preset",
+        action="append",
+        default=None,
+        help="预设名（presets/ 目录下的 .py，可多次指定，后者覆盖前者）",
+    )
 
     # ------------------------------
     # 4. tree = 查看文档结构
@@ -224,6 +237,12 @@ wordf startapi -H 127.0.0.1 -p 8000
         help="YAML 配置路径（可选）",
     )
     p_md.add_argument("-o", default="output/", help="输出目录（默认output/）")
+    p_md.add_argument(
+        "--preset",
+        action="append",
+        default=None,
+        help="预设名（presets/ 目录下的 .py，可多次指定，后者覆盖前者）",
+    )
 
     # ------------------------------
     # 7. startapi = 启动API服务
@@ -245,6 +264,16 @@ wordf startapi -H 127.0.0.1 -p 8000
         type=_validate_port,
         default=8000,
         help="API服务端口（默认8000）",
+    )
+
+    # ------------------------------
+    # 8. list-presets = 列出可用预设
+    # ------------------------------
+    p_list_presets = subparsers.add_parser(
+        "list-presets", help="列出 presets/ 目录下可用的预设"
+    )
+    p_list_presets.add_argument(
+        "-v", "--verbose", action="store_true", help="显示预设文件路径"
     )
 
     # 解析参数
@@ -280,24 +309,30 @@ wordf startapi -H 127.0.0.1 -p 8000
 
     elif args.mode == "cf":
         logger.info("🔍 开始格式检查...")
-        auto_format_thesis_document(
-            jsonpath=args.f,
-            docxpath=args.d,
-            configpath=args.c,
-            savepath=args.o,
-            check=True,
-        )
+        call_args = {
+            "jsonpath": args.f,
+            "docxpath": args.d,
+            "configpath": args.c,
+            "savepath": args.o,
+            "check": True,
+        }
+        if args.preset:
+            call_args["presets"] = args.preset
+        auto_format_thesis_document(**call_args)
         logger.success(f"✅ 检查完成！报告保存在：{args.o}")
 
     elif args.mode == "af":
         logger.info("✏️ 开始自动格式化...")
-        auto_format_thesis_document(
-            jsonpath=args.f,
-            docxpath=args.d,
-            configpath=args.c,
-            savepath=args.o,
-            check=False,
-        )
+        call_args = {
+            "jsonpath": args.f,
+            "docxpath": args.d,
+            "configpath": args.c,
+            "savepath": args.o,
+            "check": False,
+        }
+        if args.preset:
+            call_args["presets"] = args.preset
+        auto_format_thesis_document(**call_args)
         logger.success(f"✅ 格式化完成！新文件保存在：{args.o}")
 
     elif args.mode == "tree":
@@ -352,12 +387,31 @@ wordf startapi -H 127.0.0.1 -p 8000
 
     elif args.mode == "md":
         logger.info("📝 开始 Markdown → Docx 转换...")
-        md_to_docx(
-            md_path=args.d,
-            config_path=args.c,
-            save_dir=args.o,
-        )
+        call_args = {
+            "md_path": args.d,
+            "config_path": args.c,
+            "save_dir": args.o,
+        }
+        if args.preset:
+            call_args["presets"] = args.preset
+        md_to_docx(**call_args)
         logger.success(f"✅ 转换完成！文件保存在：{args.o}")
+
+    elif args.mode == "list-presets":
+        from wordformat.preset_loader import list_presets, preset_dir
+
+        available = list_presets()
+        if not available:
+            logger.info(f"presets/ 目录下暂无可用预设：{preset_dir()}")
+        else:
+            logger.info(f"可用预设（{len(available)} 个）：")
+            for name in available:
+                mark = (
+                    f"{name} <- {preset_dir() / f'{name}.py'}" if args.verbose else name
+                )
+                console.print(mark)
+            if not args.verbose:
+                logger.info("提示：加 -v 查看预设文件路径")
 
     elif args.mode == "startapi":
         logger.info("🚀 启动API服务...")
