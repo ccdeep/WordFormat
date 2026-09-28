@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+import re
+
 from wordformat.domains import register_domain
 from wordformat.hooks import HookRegistry, hooks
 
@@ -87,6 +89,14 @@ def _reset_caption_state(data: dict):
     _state.update(chapter=0, fig={}, tab={})
 
 
+# 目录条目形态：编号前缀 + 制表符页码（"1 绪论\t1"）或点线页码（"1.1 引言……7"）。
+# 模型常把目录行判为 heading_level_1，章节计数必须排除，否则题注章节号整体偏移。
+_TOC_ENTRY_RE = re.compile(
+    r"^\s*(?:第[一二三四五六七八九十百\d]+[章节篇]|\d+(?:\.\d+)*|[一二三四五六七八九十]+、)"
+    r".*?(?:\t\d+|[.．·]{2,}\s*\d+)\s*$"
+)
+
+
 def _inject_caption_numbering(data: dict):
     """题注节点注入章节号与顺序号，其余节点 setdefault 当前章节号。
 
@@ -100,9 +110,13 @@ def _inject_caption_numbering(data: dict):
     value = node.value if isinstance(node.value, dict) else {}
     category = value.get("category", "")
 
-    # 遇到一级标题时递增章节号
+    # 遇到一级标题时递增章节号（目录条目不递增，见 _TOC_ENTRY_RE）
     if category == "heading_level_1":
-        _state["chapter"] += 1
+        text = node.paragraph.text if node.paragraph else ""
+        if not isinstance(text, str):
+            text = ""
+        if not _TOC_ENTRY_RE.match(text):
+            _state["chapter"] += 1
     chapter = _state["chapter"]
 
     # 题注节点：注入章节号 + 顺序号（续表/续图保留原标题注编号）
