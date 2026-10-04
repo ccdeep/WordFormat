@@ -170,7 +170,7 @@ class App:
 
     def _detect_worker(self, docx: str):
         try:
-            data = DocxBase(docx).parse()
+            data = DocxBase(docx, configpath=None).parse()
         except Exception as e:  # 线程内异常必须回主线程报告
             self.root.after(0, self._detect_failed, str(e))
             return
