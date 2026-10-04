@@ -164,6 +164,30 @@ def _cfg_get(node, name):
     return getattr(node, name, None)
 
 
+class EquationNumberingStage:
+    """公式段落排版（需求 D4.4）：带编号→制表位法（居中+右制表位），
+    无编号→段落居中。OMML 本体不碰。仅 apply 模式。"""
+
+    def process(self, ctx: FormatContext) -> FormatContext:
+        if ctx.check:
+            return ctx
+        from wordformat.equation import format_equation_paragraph
+        nodes = ParagraphAlignmentStage()._flatten_tree_nodes(ctx.root_node)
+        fixed = 0
+        for node in nodes:
+            cat = node.value.get("category", "") if isinstance(node.value, dict) else ""
+            if cat != "equation_para" or node.paragraph is None:
+                continue
+            try:
+                format_equation_paragraph(node.paragraph)
+                fixed += 1
+            except Exception as e:
+                logger.warning(f"公式段排版失败（跳过）: {e}")
+        if fixed:
+            logger.info(f"已排版公式段 {fixed} 个（编号→制表位法，无编号→居中）")
+        return ctx
+
+
 class StyleDefinitionFixStage:
     """修正样式定义（仅 apply 模式）"""
 

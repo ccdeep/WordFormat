@@ -13,6 +13,7 @@ from wordformat.log_config import logger
 from wordformat.pipeline.context import FormatContext
 from wordformat.pipeline.stages import (
     DocumentSavingStage,
+    EquationNumberingStage,
     FormattingExecutionStage,
     LoadConfigStage,
     LoadDocxStage,
@@ -88,6 +89,7 @@ def auto_format_thesis_document(
         TreeBuildingStage(),
         ParagraphAlignmentStage(),
         TreeNormalizationStage(),
+        EquationNumberingStage(),
         StyleDefinitionFixStage(),
         FormattingExecutionStage(skip_comments=skip_comments),
         SummaryGenerationStage(),
