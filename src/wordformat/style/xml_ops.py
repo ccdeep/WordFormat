@@ -30,9 +30,16 @@ def rPr_set_font(rPr, cn_name=None, en_name=None):
         # 歧义宽度字符（引号/破折号等）的字体槽位由 hint 裁决：不写 hint 会被
         # hAnsi（西文字体）渲染成半角样式（详见需求文档 D4.1 与 docx-quote-fix 机理）
         rFonts.set(qn("w:hint"), "eastAsia")
+        # theme 属性存在时 Word 忽略显式值，必须同步清除
+        for theme_attr in ("w:eastAsiaTheme",):
+            if rFonts.get(qn(theme_attr)) is not None:
+                del rFonts.attrib[qn(theme_attr)]
     if en_name:
         rFonts.set(qn("w:ascii"), str(en_name))
         rFonts.set(qn("w:hAnsi"), str(en_name))
+        for theme_attr in ("w:asciiTheme", "w:hAnsiTheme"):
+            if rFonts.get(qn(theme_attr)) is not None:
+                del rFonts.attrib[qn(theme_attr)]
 
 
 def rPr_set_font_size(rPr, pt_val):

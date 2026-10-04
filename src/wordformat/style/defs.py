@@ -9,6 +9,7 @@ from typing import Callable, Optional, Tuple
 
 import webcolors
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
@@ -213,6 +214,13 @@ class FontName(UnitLabelEnum):
             run_set_font_name(run=docx_obj, font_name=self.value)
         else:
             docx_obj.font.name = self.value
+            # theme 属性存在时 Word 忽略显式值，必须同步清除
+            rPr = docx_obj._element.get_or_add_rPr()
+            rFonts = rPr.find(qn("w:rFonts"))
+            if rFonts is not None:
+                for theme_attr in ("w:asciiTheme", "w:hAnsiTheme"):
+                    if rFonts.get(qn(theme_attr)) is not None:
+                        del rFonts.attrib[qn(theme_attr)]
 
 
 class FontSize(UnitLabelEnum):

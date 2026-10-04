@@ -135,16 +135,20 @@ def x_color_rgb(rPr):
 
 
 def _font_attr(rPr, literal: str, theme: str):
-    """从 rFonts 提取字体名；直接字体名返回 str，主题 token 返回 ThemeRef，否则 _MISS。"""
+    """从 rFonts 提取字体名；直接字体名返回 str，主题 token 返回 ThemeRef，否则 _MISS。
+
+    注意优先级：ECMA-376 规定 asciiTheme 存在时忽略 ascii（theme 覆盖显式值）。
+    此前"显式优先"导致 reader 报告 TNR 而 Word 实际渲染主题字体（等线），
+    diff 检不出差异、样式修正永远不触发。"""
     rFonts = rPr.find(qn("w:rFonts"))
     if rFonts is None:
         return _MISS
-    name = rFonts.get(qn(literal))
-    if name:
-        return name
     token = rFonts.get(qn(theme))
     if token:
         return ThemeRef(token)
+    name = rFonts.get(qn(literal))
+    if name:
+        return name
     return _MISS
 
 

@@ -17,7 +17,11 @@ from loguru import logger
 def run_set_font_name(run, font_name: str):
     """设置 Run 对象的东亚字体名称（python-docx Font 不支持 eastAsia）。"""
     rPr = run._element.get_or_add_rPr()
-    rPr.get_or_add_rFonts().set(qn("w:eastAsia"), font_name)
+    rFonts = rPr.get_or_add_rFonts()
+    rFonts.set(qn("w:eastAsia"), font_name)
+    # theme 属性存在时 Word 忽略显式值
+    if rFonts.get(qn("w:eastAsiaTheme")) is not None:
+        del rFonts.attrib[qn("w:eastAsiaTheme")]
 
 
 def _paragraph_space_by_lines(
