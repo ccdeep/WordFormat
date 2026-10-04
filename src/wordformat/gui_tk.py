@@ -5,7 +5,8 @@
     Word 文件 → [开始识别] → 结构列表预览（类别下拉改判）→ [套用格式方案] → 新 docx
 
 - 识别：复用 base.DocxBase.parse（含公式段/表内段落/目录行/题注等结构规则）
-- 改判：双击"类别"单元格出现下拉框，改判写入识别数据（needs_review 清零，标记人工改判）
+- 改判：双击"类别"单元格出现下拉框（中文显示），改判写入识别数据
+- 联动：右侧原文窗口按段落逐行排布整篇文本，点击列表行自动滚动定位并高亮该段
 - 套用：auto_format_thesis_document（check=False），可选不写审计批注
 全部本地离线运行。
 """
@@ -48,6 +49,12 @@ CAT_CN = {
     "equation_para": "公式段落", "table_text": "表格内文字", "toc_line": "目录行",
     "footer": "页脚", "figure_image": "图片段落",
 }
+CN_TO_CATEGORY = {v: k for k, v in CAT_CN.items()}
+CATEGORY_CN_LIST = [CAT_CN.get(c, c) for c in CATEGORIES]
+
+
+def _cat_cn(cat: str) -> str:
+    return CAT_CN.get(cat, cat)
 
 
 def _default_preset() -> str:
@@ -60,8 +67,8 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         root.title("Word 格式整理器（wordformat）")
-        root.geometry("1080x720")
-        root.minsize(920, 600)
+        root.geometry("1280x760")
+        root.minsize(1024, 620)
 
         self.data: list[dict] = []
         self.docx_path: str | None = None
@@ -76,11 +83,11 @@ class App:
         top.pack(fill="x")
         ttk.Label(top, text="Word 文件:").grid(row=0, column=0, sticky="w")
         self.docx_var = tk.StringVar()
-        ttk.Entry(top, textvariable=self.docx_var, width=58).grid(row=0, column=1, padx=4)
+        ttk.Entry(top, textvariable=self.docx_var, width=56).grid(row=0, column=1, padx=4)
         ttk.Button(top, text="浏览…", command=self.browse_docx).grid(row=0, column=2)
         ttk.Label(top, text="格式方案:").grid(row=1, column=0, sticky="w", pady=(4, 0))
         self.yaml_var = tk.StringVar()
-        ttk.Entry(top, textvariable=self.yaml_var, width=58).grid(row=1, column=1, padx=4, pady=(4, 0))
+        ttk.Entry(top, textvariable=self.yaml_var, width=56).grid(row=1, column=1, padx=4, pady=(4, 0))
         ttk.Button(top, text="浏览…", command=self.browse_yaml).grid(row=1, column=2, pady=(4, 0))
         ttk.Button(top, text="从参考文档提取…", command=self.extract_from_reference).grid(
             row=1, column=3, padx=(6, 0), pady=(4, 0))
@@ -98,20 +105,41 @@ class App:
                                    state="disabled")
         self.save_btn.pack(side="left", padx=8)
 
+        # 左：识别列表 ｜ 右：原文窗口（可拖动分隔条调宽）
+        pane = ttk.Panedwindow(self.root, orient="horizontal")
+        pane.pack(fill="both", expand=True, padx=10, pady=(0, 4))
+
+        left = ttk.Frame(pane)
+        pane.add(left, weight=3)
         columns = ("idx", "cat", "score", "review", "text")
         headers = ("序号", "类别（双击改判）", "置信度", "需复核", "文本摘录")
-        widths = (56, 150, 64, 64, 560)
-        self.tree = ttk.Treeview(self.root, columns=columns, show="headings", height=22)
+        widths = (50, 130, 58, 60, 330)
+        self.tree = ttk.Treeview(left, columns=columns, show="headings", height=24)
         for col, head, width in zip(columns, headers, widths):
             self.tree.heading(col, text=head)
             self.tree.column(col, width=width, anchor="w")
-        vsb = ttk.Scrollbar(self.root, orient="vertical", command=self.tree.yview)
+        vsb = ttk.Scrollbar(left, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vsb.set)
-        self.tree.pack(fill="both", expand=True, padx=(10, 0))
-        vsb.pack(side="right", fill="y", pady=(0, 0))
+        self.tree.pack(fill="both", expand=True, side="left")
+        vsb.pack(side="right", fill="y")
         self.tree.tag_configure("review", background="#FFF3CD")
         self.tree.tag_configure("void", foreground="#8A8A8A")
         self.tree.bind("<Double-1>", self._on_double_click)
+        self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+
+        right = ttk.Frame(pane)
+        pane.add(right, weight=2)
+        ttk.Label(right, text="原文（点击左侧列表行可定位高亮）",
+                  foreground="#666666").pack(anchor="w")
+        self.原文 = tk.Text(right, wrap="word", state="disabled",
+                            font=("Microsoft YaHei UI", 10), padx=8, pady=6,
+                            cursor="arrow")
+        zsb = ttk.Scrollbar(right, orient="vertical", command=self.原文.yview)
+        self.原文.configure(yscrollcommand=zsb.set)
+        self.原文.pack(fill="both", expand=True, side="left")
+        zsb.pack(side="right", fill="y")
+        self.原文.tag_configure("current", background="#FFE69C")
+        self.原文.tag_configure("placeholder", foreground="#999999")
 
         self.status_var = tk.StringVar(value="就绪——选择 Word 文件后点击「开始识别」")
         ttk.Label(self.root, textvariable=self.status_var, relief="sunken",
@@ -130,35 +158,6 @@ class App:
         if path:
             self.yaml_var.set(path)
 
-    def extract_from_reference(self):
-        """从一篇符合目标格式的参考文档反推格式方案（M4）。"""
-        ref = filedialog.askopenfilename(title="选择参考文档（符合目标格式的范文）",
-                                         filetypes=[("Word 文档", "*.docx")])
-        if not ref:
-            return
-        base = self.yaml_var.get().strip() or None
-        if base and not Path(base).exists():
-            base = None
-        out = filedialog.asksaveasfilename(
-            title="保存提取出的方案", defaultextension=".yaml",
-            initialfile=Path(ref).stem + "_方案.yaml",
-            filetypes=[("YAML", "*.yaml *.yml")])
-        if not out:
-            return
-        from wordformat.extract import extract_profile, save_yaml
-        try:
-            config, report = extract_profile(ref, base)
-            save_yaml(config, out)
-            with open(Path(out).with_suffix(".提取报告.txt"), "w", encoding="utf-8") as f:
-                f.write("\n".join(report))
-        except Exception as e:
-            messagebox.showerror("提取失败", str(e))
-            return
-        self.yaml_var.set(out)
-        messagebox.showinfo(
-            "提取完成",
-            f"方案已生成:\n{out}\n\n提取报告:\n{Path(out).with_suffix('.提取报告.txt')}")
-
     def start_detect(self):
         docx = self.docx_var.get().strip()
         if not docx or not Path(docx).exists():
@@ -176,10 +175,6 @@ class App:
             return
         self.root.after(0, self._populate, data)
 
-    def _detect_failed(self, msg: str):
-        self._set_busy(False, "识别失败")
-        messagebox.showerror("识别失败", msg)
-
     def _populate(self, data: list[dict]):
         self.data = data
         self.tree.delete(*self.tree.get_children())
@@ -191,13 +186,41 @@ class App:
             if cat in VOIDNODELIST:
                 tags.append("void")
             self.tree.insert("", "end", iid=str(i), values=(
-                i, cat, f"{item.get('score', 0):.2f}",
+                i, _cat_cn(cat), f"{item.get('score', 0):.2f}",
                 "是" if item.get("needs_review") else "",
                 (item.get("paragraph") or "")[:80],
             ), tags=tags)
+        self._fill_original_text(data)
         n_review = sum(1 for d in data if d.get("needs_review"))
         self._set_busy(False, f"识别完成：{len(data)} 段，其中 {n_review} 段建议人工复核（黄色行）。"
-                              "双击「类别」单元格可改判。")
+                              "单击行可在右侧原文定位，双击「类别」单元格可改判。")
+
+    def _fill_original_text(self, data: list[dict]):
+        """右侧原文窗：一段一行（空段/图片段/公式段显示灰色占位）。"""
+        self.原文.configure(state="normal")
+        self.原文.delete("1.0", "end")
+        for item in data:
+            text = (item.get("paragraph") or "").strip()
+            if text:
+                self.原文.insert("end", text + "\n")
+            elif item["category"] == "figure_image":
+                self.原文.insert("end", "〔图片段落〕\n", ("placeholder",))
+            elif item["category"] == "equation_para":
+                self.原文.insert("end", "〔公式段落〕\n", ("placeholder",))
+            else:
+                self.原文.insert("end", "〔空段落〕\n", ("placeholder",))
+        self.原文.configure(state="disabled")
+
+    # ── 列表 ↔ 原文联动 ───────────────────────────────────
+    def _on_tree_select(self, _event=None):
+        sel = self.tree.selection()
+        if not sel or not self.data:
+            return
+        idx = int(sel[0])
+        self.原文.tag_remove("current", "1.0", "end")
+        line = idx + 1  # 原文窗一段一行
+        self.原文.tag_add("current", f"{line}.0", f"{line}.end")
+        self.原文.see(f"{max(line - 1, 1)}.0")
 
     # ── 改判 ─────────────────────────────────────────────
     def _on_double_click(self, event):
@@ -210,27 +233,29 @@ class App:
             return
         idx = int(row_id)
         x, y, w, h = self.tree.bbox(row_id, col)
-        current = self.data[idx]["category"]
-        cb = ttk.Combobox(self.root, values=CATEGORIES, state="readonly")
-        cb.set(current)
+        current_en = self.data[idx]["category"]
+        cb = ttk.Combobox(self.root, values=CATEGORY_CN_LIST, state="readonly")
+        cb.set(_cat_cn(current_en))
         cb.place(x=x + self.tree.winfo_x(), y=y + self.tree.winfo_y(), width=w, height=h)
         cb.focus_set()
 
-        def confirm(event=None):
-            new_cat = cb.get()
+        def confirm(_event=None):
+            cn = cb.get()
             cb.destroy()
-            if new_cat and new_cat != self.data[idx]["category"]:
-                self.data[idx]["category"] = new_cat
-                self.data[idx]["needs_review"] = False
-                self.data[idx]["comment"] = "人工改判"
-                tags = ["void"] if new_cat in VOIDNODELIST else []
-                values = list(self.tree.item(row_id, "values"))
-                values[1] = new_cat
-                values[3] = ""
-                self.tree.item(row_id, values=values, tags=tags)
-                self.status_var.set(f"已改判第 {idx} 段 → {CAT_CN.get(new_cat, new_cat)}")
+            new_en = CN_TO_CATEGORY.get(cn)
+            if not new_en or new_en == current_en:
+                return
+            self.data[idx]["category"] = new_en
+            self.data[idx]["needs_review"] = False
+            self.data[idx]["comment"] = "人工改判"
+            values = list(self.tree.item(row_id, "values"))
+            values[1] = _cat_cn(new_en)
+            values[3] = ""
+            tags = ["void"] if new_en in VOIDNODELIST else []
+            self.tree.item(row_id, values=values, tags=tags)
+            self.status_var.set(f"已改判第 {idx} 段 → {_cat_cn(new_en)}")
 
-        def cancel(event=None):
+        def cancel(_event=None):
             cb.destroy()
 
         cb.bind("<<ComboboxSelected>>", confirm)
@@ -297,6 +322,35 @@ class App:
         self.apply_btn.configure(state="normal" if (not busy and self.data) else "disabled")
         self.save_btn.configure(state="normal" if (not busy and self.data) else "disabled")
         self.status_var.set(status)
+
+    # 参考文档反推（M4）
+    def extract_from_reference(self):
+        ref = filedialog.askopenfilename(title="选择参考文档（符合目标格式的范文）",
+                                         filetypes=[("Word 文档", "*.docx")])
+        if not ref:
+            return
+        base = self.yaml_var.get().strip() or None
+        if base and not Path(base).exists():
+            base = None
+        out = filedialog.asksaveasfilename(
+            title="保存提取出的方案", defaultextension=".yaml",
+            initialfile=Path(ref).stem + "_方案.yaml",
+            filetypes=[("YAML", "*.yaml *.yml")])
+        if not out:
+            return
+        from wordformat.extract import extract_profile, save_yaml
+        try:
+            config, report = extract_profile(ref, base)
+            save_yaml(config, out)
+            report_path = Path(out).with_suffix(".提取报告.txt")
+            report_path.write_text("\n".join(report), encoding="utf-8")
+        except Exception as e:
+            messagebox.showerror("提取失败", str(e))
+            return
+        self.yaml_var.set(out)
+        messagebox.showinfo(
+            "提取完成",
+            f"方案已生成:\n{out}\n\n提取报告:\n{report_path}")
 
 
 def main():
