@@ -255,6 +255,7 @@ class DocxBase:
         # → 8) 附录区中性化 → 9) 章节状态机（置信度门控）→ 10) 序列修正
         # → 11) 参考文献区位置门控 → 12) 标题编号正则校准
         _fix_document_title(result)
+        _fix_document_title_sections(result)
         _fix_abstract_en_title(result)
         _fix_known_categories(result)
         _fix_abstract_titles(result)
@@ -329,6 +330,31 @@ def _apply_footer(result: list[dict]) -> None:
             item["category"] = "footer"
             item["comment"] = "页脚/AI 生成声明（规则识别）"
             item["score"] = 1.0
+            item["needs_review"] = False
+
+
+# 节标题形态（中文序号/章标题）：document_title 低分且命中此形态的是分节标题，
+# 不是文档主标题（实测教育学开题"五/六"节被判 document_title 0.2-0.3）
+_DOCTITLE_SECTION_RE = re.compile(
+    r"^(第\s*[一二三四五六七八九十百千零0-9]+\s*章|[一二三四五六七八九十]{1,3}\s*[、．.]?\s*\S)"
+)
+
+
+def _fix_document_title_sections(result: list[dict]) -> None:
+    """P2-6：document_title 低分 + 中文序号节标题形态 → heading_level_1。
+    只处理中文序号/章标题形态（阿拉伯数字编号多为表单条目，不动）。"""
+    for item in result:
+        if item["category"] != "document_title":
+            continue
+        if item.get("score", 1.0) >= 0.5:
+            continue
+        t = (item.get("paragraph") or "").strip()
+        if not t or len(t) > 40:
+            continue
+        if _DOCTITLE_SECTION_RE.match(t):
+            item["category"] = "heading_level_1"
+            item["comment"] = "节标题（序号形态规则修正，原 document_title）"
+            item["score"] = 0.7
             item["needs_review"] = False
 
 

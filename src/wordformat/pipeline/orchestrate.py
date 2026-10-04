@@ -36,6 +36,7 @@ def auto_format_thesis_document(
     configpath: Optional[str] = None,
     savepath: str = "output/",
     check=True,
+    skip_comments: bool = False,
 ):
     """自动对学位论文文档进行格式校验与批注。
 
@@ -88,7 +89,7 @@ def auto_format_thesis_document(
         ParagraphAlignmentStage(),
         TreeNormalizationStage(),
         StyleDefinitionFixStage(),
-        FormattingExecutionStage(),
+        FormattingExecutionStage(skip_comments=skip_comments),
         SummaryGenerationStage(),
         PostProcessingStage(),
         DocumentSavingStage(),

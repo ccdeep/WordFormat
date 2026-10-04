@@ -118,6 +118,8 @@ wordf startapi -H 127.0.0.1 -p 8000
     # ------------------------------
     # 1. gj = 生成 JSON（自动命名）
     # ------------------------------
+    p_gui = subparsers.add_parser("gui", help="打开识别预览/改判桌面界面（Tkinter）")
+
     p_gj = subparsers.add_parser("gj", help="生成JSON结构（自动输出到-o目录）")
     p_gj.add_argument(
         "-d",
@@ -161,6 +163,8 @@ wordf startapi -H 127.0.0.1 -p 8000
     # 3. af = 格式化
     # ------------------------------
     p_af = subparsers.add_parser("af", help="自动格式化论文")
+    p_af.add_argument("--no-comments", action="store_true",
+                      help="不写入审计批注（默认 af 会把修正记录以批注形式留在文档里）")
     p_af.add_argument(
         "-d",
         required=True,
@@ -258,6 +262,11 @@ wordf startapi -H 127.0.0.1 -p 8000
     # ==============================
     # 执行逻辑
     # ==============================
+    if args.mode == "gui":
+        from wordformat.gui_tk import main as gui_main
+        gui_main()
+        return
+
     if args.mode == "gj":
         docx = Path(args.d)
         config = args.c
@@ -297,6 +306,7 @@ wordf startapi -H 127.0.0.1 -p 8000
             configpath=args.c,
             savepath=args.o,
             check=False,
+            skip_comments=getattr(args, "no_comments", False),
         )
         logger.success(f"✅ 格式化完成！新文件保存在：{args.o}")
 
