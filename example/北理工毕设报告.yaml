@@ -1,0 +1,419 @@
+# 北理工本科毕设报告格式预设
+# 依据《格式方案_毕设报告_基准v0.1.md》（来源：用户毕设内嵌官方 Word 模板样式表 01-~28-，
+# BIThesis 旁证交叉核对）。待核项以 ★ 标注（见基准文档 §四）。
+# wordformat 配置模式暂不支持（缺口清单 #2/#11）：表内文字(07-1)、页眉(05-)、
+# 页脚(06-)、公式编号制表位法。已按最接近项配置，缺口修掉后回填。
+
+template_name: 北理工本科毕设报告（基准v0.1）
+
+style_checks_warning:
+  bold: true
+  italic: true
+  underline: true
+  font_size: true
+  font_name_cn: false
+  font_name_en: false
+  font_color: false
+  alignment: true
+  space_before: true
+  space_after: true
+  line_spacing: true
+  line_spacing_rule: true
+  left_indent: true
+  right_indent: true
+  first_line_indent: true
+  builtin_style_name: true
+
+numbering:
+  # 毕设章标题是 numPr 自动编号（渲染"第X章"），套用时必须保留自动编号。
+  # wordformat 的自动编号重建逻辑是否兼容 numPr 模板 → 待验证（缺口清单 #5）
+  enabled: false
+
+abstract:
+  chinese:
+    title:            # 模板 18-：黑体 小二(18pt ★待核，常见为三号) 加粗 居中 段前1行段后1行
+      paragraph:
+        alignment: '居中对齐'
+        space_before: '1行'
+        space_after: '1行'
+        line_spacingrule: '单倍行距'
+        line_spacing: '1倍'
+        left_indent: '0字符'
+        right_indent: '0字符'
+        first_line_indent: '0字符'
+        builtin_style_name: 正文
+      font:
+        chinese_font_name: 黑体
+        english_font_name: Times New Roman
+        font_size: '小二'
+        font_color: 黑色
+        bold: true
+        italic: false
+        underline: false
+    body:             # 模板未见专用样式（★待核：01-正文归属），按正文套
+      paragraph:
+        alignment: '两端对齐'
+        space_before: '0行'
+        space_after: '0行'
+        line_spacingrule: '固定值'
+        line_spacing: '22磅'
+        left_indent: '0字符'
+        right_indent: '0字符'
+        first_line_indent: '2字符'
+        builtin_style_name: 正文
+      font:
+        chinese_font_name: 宋体
+        english_font_name: Times New Roman
+        font_size: '小四'
+        font_color: 黑色
+        bold: false
+        italic: false
+        underline: false
+    keywords:         # 模板 19-：黑体 小四 加粗 两端 固定22磅
+      paragraph:
+        alignment: '两端对齐'
+        space_before: '0行'
+        space_after: '0行'
+        line_spacingrule: '固定值'
+        line_spacing: '22磅'
+        left_indent: '0字符'
+        right_indent: '0字符'
+        first_line_indent: '0字符'
+        builtin_style_name: 正文
+      font:
+        chinese_font_name: 黑体
+        english_font_name: Times New Roman
+        font_size: '小四'
+        font_color: 黑色
+        bold: true
+        italic: false
+        underline: false
+      label:
+        chinese_font_name: 黑体
+        english_font_name: Times New Roman
+        font_size: '小四'
+        font_color: 黑色
+        bold: true
+        italic: false
+        underline: false
+      rules:
+        keyword_count:
+          enabled: true
+          count_min: 3
+          count_max: 5
+        trailing_punctuation:
+          enabled: true
+          forbidden_chars: ；，。、
+  english:
+    title:            # 模板 20-：三号 加粗 居中 1.5倍 段前1行段后1行（黑体槽→西文）
+      paragraph:
+        alignment: '居中对齐'
+        space_before: '1行'
+        space_after: '1行'
+        line_spacingrule: '1.5倍行距'
+        line_spacing: '1.5倍'
+        left_indent: '0字符'
+        right_indent: '0字符'
+        first_line_indent: '0字符'
+        builtin_style_name: 正文
+      font:
+        chinese_font_name: 宋体
+        english_font_name: Times New Roman
+        font_size: '三号'
+        font_color: 黑色
+        bold: true
+        italic: false
+        underline: false
+    body:             # 模板 22-：小四 两端 固定22磅 首行2字符
+      paragraph:
+        alignment: '两端对齐'
+        space_before: '0行'
+        space_after: '0行'
+        line_spacingrule: '固定值'
+        line_spacing: '22磅'
+        left_indent: '0字符'
+        right_indent: '0字符'
+        first_line_indent: '2字符'
+        builtin_style_name: 正文
+      font:
+        chinese_font_name: 宋体
+        english_font_name: Times New Roman
+        font_size: '小四'
+        font_color: 黑色
+        bold: false
+        italic: false
+        underline: false
+    keywords:         # 模板 21-：小四 加粗 默认对齐 固定22磅
+      paragraph:
+        alignment: '两端对齐'
+        space_before: '0行'
+        space_after: '0行'
+        line_spacingrule: '固定值'
+        line_spacing: '22磅'
+        left_indent: '0字符'
+        right_indent: '0字符'
+        first_line_indent: '0字符'
+        builtin_style_name: 正文
+      font:
+        chinese_font_name: 宋体
+        english_font_name: Times New Roman
+        font_size: '小四'
+        font_color: 黑色
+        bold: true
+        italic: false
+        underline: false
+      label:
+        chinese_font_name: 宋体
+        english_font_name: Times New Roman
+        font_size: '小四'
+        font_color: 黑色
+        bold: true
+        italic: false
+        underline: false
+      rules:
+        keyword_count:
+          enabled: true
+          count_min: 3
+          count_max: 6
+
+acknowledgements:
+  title:              # 模板 09-（与结论/参考文献/附录标题同款）：黑体 三号 居中 段后1行
+    paragraph:
+      alignment: '居中对齐'
+      space_before: '0行'
+      space_after: '1行'
+      line_spacingrule: '单倍行距'
+      line_spacing: '1倍'
+      left_indent: '0字符'
+      right_indent: '0字符'
+      first_line_indent: '0字符'
+      builtin_style_name: 正文
+    font:
+      chinese_font_name: 黑体
+      english_font_name: Times New Roman
+      font_size: '三号'
+      font_color: 黑色
+      bold: false
+      italic: false
+      underline: false
+  body:
+    paragraph:
+      alignment: '两端对齐'
+      space_before: '0行'
+      space_after: '0行'
+      line_spacingrule: '固定值'
+      line_spacing: '22磅'
+      left_indent: '0字符'
+      right_indent: '0字符'
+      first_line_indent: '2字符'
+      builtin_style_name: 正文
+    font:
+      chinese_font_name: 宋体
+      english_font_name: Times New Roman
+      font_size: '小四'
+      font_color: 黑色
+      bold: false
+      italic: false
+      underline: false
+
+body:
+  text:               # 模板 01-：小四 两端 固定22磅 首行2字符（字体继承默认，实测宋体系）
+    paragraph:
+      alignment: '两端对齐'
+      space_before: '0行'
+      space_after: '0行'
+      line_spacingrule: '固定值'
+      line_spacing: '22磅'
+      left_indent: '0字符'
+      right_indent: '0字符'
+      first_line_indent: '2字符'
+      builtin_style_name: 正文
+    font:
+      chinese_font_name: 宋体
+      english_font_name: Times New Roman
+      font_size: '小四'
+      font_color: 黑色
+      bold: false
+      italic: false
+      underline: false
+    rules:
+      punctuation:
+        enabled: true
+
+figures:
+  caption:            # 模板 07-：宋体 五号 居中 1.25倍（实测题注多用内置 caption 样式，见基准§三2）
+    paragraph:
+      alignment: '居中对齐'
+      space_before: '0行'
+      space_after: '0行'
+      line_spacingrule: '多倍行距'
+      line_spacing: '1.25倍'
+      left_indent: '0字符'
+      right_indent: '0字符'
+      first_line_indent: '0字符'
+      builtin_style_name: 正文
+    font:
+      chinese_font_name: 宋体
+      english_font_name: Times New Roman
+      font_size: '五号'
+      font_color: 黑色
+      bold: false
+      italic: false
+      underline: false
+    caption_prefix: 图
+    rules:
+      caption_numbering:
+        enabled: true
+        separator: .
+        label_number_space: false
+  image:
+    alignment: '居中对齐'
+    first_line_indent: '0字符'
+
+tables:
+  caption:            # 模板 07-：同图题
+    paragraph:
+      alignment: '居中对齐'
+      space_before: '0行'
+      space_after: '0行'
+      line_spacingrule: '多倍行距'
+      line_spacing: '1.25倍'
+      left_indent: '0字符'
+      right_indent: '0字符'
+      first_line_indent: '0字符'
+      builtin_style_name: 正文
+    font:
+      chinese_font_name: 宋体
+      english_font_name: Times New Roman
+      font_size: '五号'
+      font_color: 黑色
+      bold: false
+      italic: false
+      underline: false
+    caption_prefix: 表
+    rules:
+      caption_numbering:
+        enabled: true
+        separator: .
+        label_number_space: false
+  # 缺口：表内文字（模板 07-1 宋体小四居中）无对应配置节，暂不生效
+
+headings:
+  level_1:            # 模板 02-：黑体 三号 加粗 居中 1.5倍 段前0.5行段后1行（numPr 自动编号"第X章"）
+    paragraph:
+      alignment: '居中对齐'
+      space_before: '0.5行'
+      space_after: '1行'
+      line_spacingrule: '1.5倍行距'
+      line_spacing: '1.5倍'
+      left_indent: '0字符'
+      right_indent: '0字符'
+      first_line_indent: '0字符'
+      builtin_style_name: Heading 1
+    font:
+      chinese_font_name: 黑体
+      english_font_name: 黑体
+      font_size: '三号'
+      font_color: 黑色
+      bold: true
+      italic: false
+      underline: false
+  level_2:            # 模板 03-：黑体 四号 加粗 两端 1.5倍 段前0.5行
+    paragraph:
+      alignment: '两端对齐'
+      space_before: '0.5行'
+      space_after: '0行'
+      line_spacingrule: '1.5倍行距'
+      line_spacing: '1.5倍'
+      left_indent: '0字符'
+      right_indent: '0字符'
+      first_line_indent: '0字符'
+      builtin_style_name: Heading 2
+    font:
+      chinese_font_name: 黑体
+      english_font_name: 黑体
+      font_size: '四号'
+      font_color: 黑色
+      bold: true
+      italic: false
+      underline: false
+  level_3:            # 模板 04-：黑体 小四 加粗 两端 1.5倍 段前0.5行
+    paragraph:
+      alignment: '两端对齐'
+      space_before: '0.5行'
+      space_after: '0行'
+      line_spacingrule: '1.5倍行距'
+      line_spacing: '1.5倍'
+      left_indent: '0字符'
+      right_indent: '0字符'
+      first_line_indent: '0字符'
+      builtin_style_name: Heading 3
+    font:
+      chinese_font_name: 黑体
+      english_font_name: 黑体
+      font_size: '小四'
+      font_color: 黑色
+      bold: true
+      italic: false
+      underline: false
+
+math:
+  block:              # 模板 08-（实测零使用，公式全在普通段落）：五号；编号制表位法 schema 不支持 ★待核
+    paragraph:
+      alignment: '左对齐'
+      space_before: '0行'
+      space_after: '0行'
+      line_spacingrule: '单倍行距'
+      line_spacing: '1倍'
+      left_indent: '0字符'
+      right_indent: '0字符'
+      first_line_indent: '0字符'
+      builtin_style_name: 正文
+    font:
+      chinese_font_name: 宋体
+      english_font_name: Times New Roman
+      font_size: '五号'
+      font_color: 黑色
+      bold: false
+      italic: false
+      underline: false
+
+references:
+  title:              # 模板 09-：黑体 三号（不加粗）居中 段后1行
+    paragraph:
+      alignment: '居中对齐'
+      space_before: '0行'
+      space_after: '1行'
+      line_spacingrule: '单倍行距'
+      line_spacing: '1倍'
+      left_indent: '0字符'
+      right_indent: '0字符'
+      first_line_indent: '0字符'
+      builtin_style_name: 正文
+    font:
+      chinese_font_name: 黑体
+      english_font_name: Times New Roman
+      font_size: '三号'
+      font_color: 黑色
+      bold: false
+      italic: false
+      underline: false
+  entry:              # 模板 27-：五号 两端 默认行距 悬挂2字符（实测确认）
+    paragraph:
+      alignment: '两端对齐'
+      space_before: '0行'
+      space_after: '0行'
+      line_spacingrule: '单倍行距'
+      line_spacing: '1倍'
+      left_indent: '0字符'
+      right_indent: '0字符'
+      first_line_indent: '-2字符'
+      builtin_style_name: 正文
+    font:
+      chinese_font_name: 宋体
+      english_font_name: Times New Roman
+      font_size: '五号'
+      font_color: 黑色
+      bold: false
+      italic: false
+      underline: false
