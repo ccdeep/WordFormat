@@ -118,6 +118,13 @@ wordf startapi -H 127.0.0.1 -p 8000
     # ------------------------------
     # 1. gj = 生成 JSON（自动命名）
     # ------------------------------
+    p_extract = subparsers.add_parser(
+        "extract", help="从参考文档样式表反推格式方案（YAML）")
+    p_extract.add_argument("-d", required=True, help="参考 docx（符合目标格式的范文）")
+    p_extract.add_argument("-o", required=True, help="输出 YAML 路径")
+    p_extract.add_argument("-b", default=None,
+                           help="基础预设 YAML（未提取字段回落其值；建议传当前在用方案）")
+
     p_gui = subparsers.add_parser("gui", help="打开识别预览/改判桌面界面（Tkinter）")
 
     p_gj = subparsers.add_parser("gj", help="生成JSON结构（自动输出到-o目录）")
@@ -262,6 +269,16 @@ wordf startapi -H 127.0.0.1 -p 8000
     # ==============================
     # 执行逻辑
     # ==============================
+    if args.mode == "extract":
+        from wordformat.extract import extract_profile, save_yaml
+        config, report = extract_profile(args.d, args.b)
+        save_yaml(config, args.o)
+        report_path = str(Path(args.o).with_suffix(".提取报告.txt"))
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(report))
+        logger.success(f"✅ 方案已生成: {args.o}（提取报告: {report_path}）")
+        return
+
     if args.mode == "gui":
         from wordformat.gui_tk import main as gui_main
         gui_main()

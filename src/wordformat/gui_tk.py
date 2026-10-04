@@ -82,6 +82,8 @@ class App:
         self.yaml_var = tk.StringVar()
         ttk.Entry(top, textvariable=self.yaml_var, width=58).grid(row=1, column=1, padx=4, pady=(4, 0))
         ttk.Button(top, text="浏览…", command=self.browse_yaml).grid(row=1, column=2, pady=(4, 0))
+        ttk.Button(top, text="从参考文档提取…", command=self.extract_from_reference).grid(
+            row=1, column=3, padx=(6, 0), pady=(4, 0))
 
         bar = ttk.Frame(self.root, padding=(10, 6))
         bar.pack(fill="x")
@@ -127,6 +129,35 @@ class App:
                                           filetypes=[("YAML", "*.yaml *.yml")])
         if path:
             self.yaml_var.set(path)
+
+    def extract_from_reference(self):
+        """从一篇符合目标格式的参考文档反推格式方案（M4）。"""
+        ref = filedialog.askopenfilename(title="选择参考文档（符合目标格式的范文）",
+                                         filetypes=[("Word 文档", "*.docx")])
+        if not ref:
+            return
+        base = self.yaml_var.get().strip() or None
+        if base and not Path(base).exists():
+            base = None
+        out = filedialog.asksaveasfilename(
+            title="保存提取出的方案", defaultextension=".yaml",
+            initialfile=Path(ref).stem + "_方案.yaml",
+            filetypes=[("YAML", "*.yaml *.yml")])
+        if not out:
+            return
+        from wordformat.extract import extract_profile, save_yaml
+        try:
+            config, report = extract_profile(ref, base)
+            save_yaml(config, out)
+            with open(Path(out).with_suffix(".提取报告.txt"), "w", encoding="utf-8") as f:
+                f.write("\n".join(report))
+        except Exception as e:
+            messagebox.showerror("提取失败", str(e))
+            return
+        self.yaml_var.set(out)
+        messagebox.showinfo(
+            "提取完成",
+            f"方案已生成:\n{out}\n\n提取报告:\n{Path(out).with_suffix('.提取报告.txt')}")
 
     def start_detect(self):
         docx = self.docx_var.get().strip()
