@@ -82,7 +82,7 @@ def main():
 
     # 无参数直接展示完整帮助
     if len(sys.argv) == 1:
-        console.print("""📝 论文格式自动工具（极简命令）
+        console.print(""" 论文格式自动工具（极简命令）
 ==================================================
 【极简命令】
 wordf gj    生成文档JSON结构
@@ -276,7 +276,7 @@ wordf startapi -H 127.0.0.1 -p 8000
         report_path = str(Path(args.o).with_suffix(".提取报告.txt"))
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("\n".join(report))
-        logger.success(f"✅ 方案已生成: {args.o}（提取报告: {report_path}）")
+        logger.success(f" 方案已生成: {args.o}（提取报告: {report_path}）")
         return
 
     if args.mode == "gui":
@@ -292,20 +292,20 @@ wordf startapi -H 127.0.0.1 -p 8000
         timestamp = str(int(time.time()))  # 10位时间戳
         json_path = output_dir / f"{doc_name}_{timestamp}.json"
 
-        logger.info("📌 开始生成文档结构JSON...")
-        logger.info(f"📄 源文档：{docx.resolve()}")
-        logger.info(f"📁 输出目录：{output_dir.resolve()}")
+        logger.info(" 开始生成文档结构JSON...")
+        logger.info(f" 源文档：{docx.resolve()}")
+        logger.info(f" 输出目录：{output_dir.resolve()}")
 
         # 生成并保存
         data = set_tag_main(docx_path=str(docx), configpath=config)
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
 
-        logger.success(f"✅ JSON 已生成：{json_path.resolve()}")
-        logger.info("💡 可复制此路径用于 cf/af 命令")
+        logger.success(f" JSON 已生成：{json_path.resolve()}")
+        logger.info(" 可复制此路径用于 cf/af 命令")
 
     elif args.mode == "cf":
-        logger.info("🔍 开始格式检查...")
+        logger.info(" 开始格式检查...")
         auto_format_thesis_document(
             jsonpath=args.f,
             docxpath=args.d,
@@ -313,10 +313,10 @@ wordf startapi -H 127.0.0.1 -p 8000
             savepath=args.o,
             check=True,
         )
-        logger.success(f"✅ 检查完成！报告保存在：{args.o}")
+        logger.success(f" 检查完成！报告保存在：{args.o}")
 
     elif args.mode == "af":
-        logger.info("✏️ 开始自动格式化...")
+        logger.info(" 开始自动格式化...")
         auto_format_thesis_document(
             jsonpath=args.f,
             docxpath=args.d,
@@ -325,10 +325,10 @@ wordf startapi -H 127.0.0.1 -p 8000
             check=False,
             skip_comments=getattr(args, "no_comments", False),
         )
-        logger.success(f"✅ 格式化完成！新文件保存在：{args.o}")
+        logger.success(f" 格式化完成！新文件保存在：{args.o}")
 
     elif args.mode == "tree":
-        logger.info("🌳 开始展示文档结构树...")
+        logger.info(" 开始展示文档结构树...")
         filter_categories = None
         if args.filter:
             filter_categories = [c.strip() for c in args.filter.split(",")]
@@ -378,19 +378,19 @@ wordf startapi -H 127.0.0.1 -p 8000
             _show_config()
 
     elif args.mode == "md":
-        logger.info("📝 开始 Markdown → Docx 转换...")
+        logger.info(" 开始 Markdown → Docx 转换...")
         md_to_docx(
             md_path=args.d,
             config_path=args.c,
             save_dir=args.o,
         )
-        logger.success(f"✅ 转换完成！文件保存在：{args.o}")
+        logger.success(f" 转换完成！文件保存在：{args.o}")
 
     elif args.mode == "startapi":
-        logger.info("🚀 启动API服务...")
-        logger.info(f"🌐 服务地址：http://{args.host}:{args.port}")
-        logger.info(f"📖 API文档：http://{args.host}:{args.port}/docs")
-        logger.info("💡 按 Ctrl+C 停止服务")
+        logger.info(" 启动API服务...")
+        logger.info(f" 服务地址：http://{args.host}:{args.port}")
+        logger.info(f" API文档：http://{args.host}:{args.port}/docs")
+        logger.info(" 按 Ctrl+C 停止服务")
 
         # 动态导入并启动API服务
         import uvicorn

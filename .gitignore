@@ -35,3 +35,6 @@ training/
 src/wordformat.egg-info
 node_modules/
 .env
+build_exe/
+dist/
+*.exe
