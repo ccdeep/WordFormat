@@ -263,7 +263,9 @@ figures:
     caption_prefix: 图
     rules:
       caption_numbering:
-        enabled: true
+        # 关闭：需求 D4.2 要求题注文本永不修改；原文编号是 SEQ 域（自动更新），
+        # 重建为静态编号既改文本又会因章计数口径不同而错号（实测 图2-1→8.1）
+        enabled: false
         separator: .
         label_number_space: false
   image:
@@ -293,7 +295,9 @@ tables:
     caption_prefix: 表
     rules:
       caption_numbering:
-        enabled: true
+        # 关闭：需求 D4.2 要求题注文本永不修改；原文编号是 SEQ 域（自动更新），
+        # 重建为静态编号既改文本又会因章计数口径不同而错号（实测 图2-1→8.1）
+        enabled: false
         separator: .
         label_number_space: false
   # 缺口：表内文字（模板 07-1 宋体小四居中）无对应配置节，暂不生效

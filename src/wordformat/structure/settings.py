@@ -36,6 +36,11 @@ CATEGORY_TO_CLASS.setdefault("footer", BodyText)  # 页脚/AI 生成声明（后
 # （heading_fulu 是模型真实标签，附录段落必然触发；heading_mulu 为结构性 terminal 类别）。
 CATEGORY_TO_CLASS.setdefault("heading_mulu", BodyText)  # 目录标题
 CATEGORY_TO_CLASS.setdefault("heading_fulu", BodyText)  # 附录标题
+# 公式段落/表内文字（结构规则标签，缺口清单 P0-1/P0-2）：
+# 必须注册否则 create_node 因未知类别返回 None 丢弃节点，导致段落与树节点错位。
+# 两者均在 VOIDNODELIST 中，识别后仅预览展示、不参与格式化。
+CATEGORY_TO_CLASS.setdefault("equation_para", BodyText)  # 公式段落
+CATEGORY_TO_CLASS.setdefault("table_text", BodyText)  # 表格内段落
 
 LEVEL_MAP = _level_registry
 # 无对应 FormatNode 的特殊 terminal 类别

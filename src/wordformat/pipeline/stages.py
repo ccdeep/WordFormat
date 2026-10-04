@@ -25,6 +25,7 @@ from wordformat.rules.node import FormatNode
 from wordformat.rules.references import ReferenceEntry, References
 from wordformat.settings import VOIDNODELIST
 from wordformat.structure.document_builder import DocumentBuilder
+from wordformat.structure.paragraph_walker import iter_document_paragraphs
 from wordformat.structure.utils import promote_bodytext_in_subtrees_of_type
 from wordformat.style.defs import (
     Alignment,
@@ -100,7 +101,12 @@ class ParagraphAlignmentStage:
 
     def process(self, ctx: FormatContext) -> FormatContext:
         nodes = self._flatten_tree_nodes(ctx.root_node)
-        paragraphs = ctx.document.paragraphs
+        # 与识别端（base.DocxBase.parse）共用同一遍历器，含表格内段落，
+        # 保证 gj 生成的节点序列与文档段落一一对应
+        paragraphs = [
+            para
+            for para, _ in iter_document_paragraphs(ctx.document)
+        ]
         if len(nodes) != len(paragraphs):
             # 节点数不等于段落数时，zip 会静默错位：后面的节点整体前移，
             # 导致 keywords_chinese/caption_figure/heading_level_* 等规则

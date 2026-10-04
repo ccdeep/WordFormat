@@ -10,7 +10,15 @@ from loguru import logger
 
 from wordformat.agent.onnx_infer import onnx_batch_infer, onnx_single_infer
 from wordformat.settings import BATCH_SIZE
+from wordformat.structure.paragraph_walker import (
+    iter_document_paragraphs,
+    paragraph_has_omath,
+)
 from wordformat.utils import get_paragraph_numbering_text, para_contains_image
+
+# 公式段落判定：公式段（如"（3-1）"编号段）的非公式文本很短；
+# 超过该长度视为夹行内公式的正文段，交给模型按正文分类
+EQUATION_MAX_TEXT_LEN = 30
 
 # ===== 分级置信度阈值（C2）=====
 # 低于阈值不再硬砍为 body_text，而是保留原标签并标记 needs_review 供人工复核。
@@ -166,30 +174,49 @@ class DocxBase:
         #     raise
 
     def parse(self) -> list[dict]:
-        # 收集所有段落（含空段），空段/图片段直接标记，不走 AI 推理
-        all_paras = list(self.document.paragraphs)
+        # 收集全部段落（含表格内段落），按结构规则直接标记的段落不走 AI 推理：
+        # 表内段落 → table_text；表内图片 → figure_image；
+        # 含 OMML 公式且非公式文本很短 → equation_para（缺口清单 P0-1/P0-2）
+        all_paras = iter_document_paragraphs(self.document)  # [(Paragraph, in_table)]
         text_indices = []
         texts_for_ai = []
-        for idx, para in enumerate(all_paras):
+        for idx, (para, in_table) in enumerate(all_paras):
+            if in_table:
+                continue
             text = para.text.strip()
             if not text:
+                continue
+            if paragraph_has_omath(para) and len(text) <= EQUATION_MAX_TEXT_LEN:
                 continue
             numbering_text = get_paragraph_numbering_text(para)
             full_text = f"{numbering_text} {text}" if numbering_text else para.text
             texts_for_ai.append(full_text)
             text_indices.append(idx)
+        text_index_set = set(text_indices)
 
         result = [None] * len(all_paras)
-        for i, para in enumerate(all_paras):
-            if i not in text_indices:
-                has_image = para_contains_image(para)
-                result[i] = {
-                    "category": "figure_image" if has_image else "body_text",
-                    "score": 1.0,
-                    "comment": "图片段落" if has_image else "空段落",
-                    "paragraph": "",
-                    "needs_review": False,
-                }
+        for i, (para, in_table) in enumerate(all_paras):
+            if i in text_index_set:
+                continue
+            has_image = para_contains_image(para)
+            text = para.text.strip()
+            if in_table:
+                category = "figure_image" if has_image else "table_text"
+                comment = "表内图片段落" if has_image else "表格内段落（结构规则）"
+            elif paragraph_has_omath(para):
+                category = "equation_para"
+                comment = "含OMML公式（结构规则）"
+            elif has_image:
+                category, comment = "figure_image", "图片段落"
+            else:
+                category, comment = "body_text", "空段落"
+            result[i] = {
+                "category": category,
+                "score": 1.0,
+                "comment": comment,
+                "paragraph": text if text else "",
+                "needs_review": False,
+            }
 
         # 对非空段进行批量 AI 推理（跨批次维护 PREV 上下文状态链）
         prev_label = None
@@ -224,9 +251,9 @@ class DocxBase:
 
         # 后处理顺序很重要：
         # 1) 文档标题 → 2) 英文摘要标题兜底 → 3) 摘要合并段/封面保护
-        # → 4) 摘要页标题回补 → 5) 页脚识别 → 6) 目录标题 → 7) 附录区中性化
-        # → 8) 章节状态机（置信度门控）→ 9) 序列修正 → 10) 参考文献区位置门控
-        # → 11) 标题编号正则校准
+        # → 4) 摘要页标题回补 → 5) 页脚识别 → 6) 目录标题 → 7) 题注前缀强制
+        # → 8) 附录区中性化 → 9) 章节状态机（置信度门控）→ 10) 序列修正
+        # → 11) 参考文献区位置门控 → 12) 标题编号正则校准
         _fix_document_title(result)
         _fix_abstract_en_title(result)
         _fix_known_categories(result)
@@ -234,6 +261,7 @@ class DocxBase:
         _gate_abstract_content(result)
         _apply_footer(result)
         _fix_toc(result)
+        _force_captions(result)
         _neutralize_appendix(result)
         _apply_section_state(result)
         _fix_sequence(result)
@@ -312,6 +340,47 @@ def _fix_toc(result: list[dict]) -> None:
             item["comment"] = "目录标题（规则覆盖）"
             item["score"] = 1.0
             item["needs_review"] = False
+
+
+# 题注前缀：图x / 图x-y / 图x. y（容忍 SEQ 域产生的"图3- 5"空格变体，基准文档§三5）
+_CAPTION_PREFIX_RE = re.compile(r"^(图|表)\s*\d+\s*[-–.．]?\s*\d*")
+# 讨论句动词：正文常以"图3-1展示了…"开头，是引用题注的正文而非题注本身。
+# 注意不能放"随"——"温度随放电深度变化图"是题注常用语（实测误杀图3-5）
+_CAPTION_DISCUSSION_RE = re.compile(r"展示了|显示了|表明|可以看出|给出|对比了")
+# 题注最大长度：真题注偶有 60+ 的长副标题（实测图3-6 为 64 字），超长多为讨论段
+_CAPTION_MAX_LEN = 70
+
+
+def _force_captions(result: list[dict]) -> None:
+    """题注前缀强制（开发计划 R5）：图x/表x 开头的短段强制为题注。
+
+    实测模型对"图3- 5 长标题"SEQ 域变体召回不稳（10/12），且 PREV 链漂移
+    会引起个案回退（图3-3）。结构规则标签（公式段/表内/图片段/页脚）优先级更高，
+    不覆盖；已正确识别的题注不重打。以句号结尾或含讨论动词的正文不误伤。
+    """
+    for item in result:
+        if item["category"] in (
+            "caption_figure",
+            "caption_table",
+            "figure_image",
+            "equation_para",
+            "table_text",
+            "footer",
+        ):
+            continue
+        t = (item.get("paragraph") or "").strip()
+        if not t or len(t) > _CAPTION_MAX_LEN or t.endswith(("。", "！", "？")):
+            continue
+        if _CAPTION_DISCUSSION_RE.search(t):
+            continue
+        m = _CAPTION_PREFIX_RE.match(t)
+        if not m:
+            continue
+        target = "caption_figure" if m.group(1) == "图" else "caption_table"
+        item["category"] = target
+        item["comment"] = "题注（图/表前缀强制规则）"
+        item["score"] = 0.9
+        item["needs_review"] = False
 
 
 def _heading_number_level(text: str) -> int | None:
