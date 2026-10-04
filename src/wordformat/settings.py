@@ -56,4 +56,5 @@ VOIDNODELIST = [
     "footer",  # 页脚/AI 生成声明（后处理扩展标签，不参与格式化）
     "equation_para",  # 公式段落（结构规则标签）：OMML 本体不动，编号制表位待二期
     "table_text",  # 表格内段落（结构规则标签）：表内格式化待配置 schema 扩展
+    "toc_line",  # 目录行（结构规则标签）：格式不动
 ]

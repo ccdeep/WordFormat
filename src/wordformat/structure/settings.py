@@ -41,6 +41,7 @@ CATEGORY_TO_CLASS.setdefault("heading_fulu", BodyText)  # 附录标题
 # 两者均在 VOIDNODELIST 中，识别后仅预览展示、不参与格式化。
 CATEGORY_TO_CLASS.setdefault("equation_para", BodyText)  # 公式段落
 CATEGORY_TO_CLASS.setdefault("table_text", BodyText)  # 表格内段落
+CATEGORY_TO_CLASS.setdefault("toc_line", BodyText)  # 目录行
 
 LEVEL_MAP = _level_registry
 # 无对应 FormatNode 的特殊 terminal 类别

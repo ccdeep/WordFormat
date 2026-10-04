@@ -60,7 +60,6 @@ abstract:
         left_indent: '0字符'
         right_indent: '0字符'
         first_line_indent: '2字符'
-        builtin_style_name: 正文
       font:
         chinese_font_name: 宋体
         english_font_name: Times New Roman
@@ -79,7 +78,6 @@ abstract:
         left_indent: '0字符'
         right_indent: '0字符'
         first_line_indent: '0字符'
-        builtin_style_name: 正文
       font:
         chinese_font_name: 黑体
         english_font_name: Times New Roman
@@ -115,7 +113,6 @@ abstract:
         left_indent: '0字符'
         right_indent: '0字符'
         first_line_indent: '0字符'
-        builtin_style_name: 正文
       font:
         chinese_font_name: 宋体
         english_font_name: Times New Roman
@@ -134,7 +131,6 @@ abstract:
         left_indent: '0字符'
         right_indent: '0字符'
         first_line_indent: '2字符'
-        builtin_style_name: 正文
       font:
         chinese_font_name: 宋体
         english_font_name: Times New Roman
@@ -153,7 +149,6 @@ abstract:
         left_indent: '0字符'
         right_indent: '0字符'
         first_line_indent: '0字符'
-        builtin_style_name: 正文
       font:
         chinese_font_name: 宋体
         english_font_name: Times New Roman
@@ -187,7 +182,6 @@ acknowledgements:
       left_indent: '0字符'
       right_indent: '0字符'
       first_line_indent: '0字符'
-      builtin_style_name: 正文
     font:
       chinese_font_name: 黑体
       english_font_name: Times New Roman
@@ -206,7 +200,6 @@ acknowledgements:
       left_indent: '0字符'
       right_indent: '0字符'
       first_line_indent: '2字符'
-      builtin_style_name: 正文
     font:
       chinese_font_name: 宋体
       english_font_name: Times New Roman
@@ -219,6 +212,7 @@ acknowledgements:
 body:
   text:               # 模板 01-：小四 两端 固定22磅 首行2字符（字体继承默认，实测宋体系）
     paragraph:
+      builtin_style_name: 正文
       alignment: '两端对齐'
       space_before: '0行'
       space_after: '0行'
@@ -227,7 +221,6 @@ body:
       left_indent: '0字符'
       right_indent: '0字符'
       first_line_indent: '2字符'
-      builtin_style_name: 正文
     font:
       chinese_font_name: 宋体
       english_font_name: Times New Roman
@@ -251,7 +244,6 @@ figures:
       left_indent: '0字符'
       right_indent: '0字符'
       first_line_indent: '0字符'
-      builtin_style_name: 正文
     font:
       chinese_font_name: 宋体
       english_font_name: Times New Roman
@@ -283,7 +275,6 @@ tables:
       left_indent: '0字符'
       right_indent: '0字符'
       first_line_indent: '0字符'
-      builtin_style_name: 正文
     font:
       chinese_font_name: 宋体
       english_font_name: Times New Roman
@@ -372,7 +363,6 @@ math:
       left_indent: '0字符'
       right_indent: '0字符'
       first_line_indent: '0字符'
-      builtin_style_name: 正文
     font:
       chinese_font_name: 宋体
       english_font_name: Times New Roman
@@ -393,7 +383,6 @@ references:
       left_indent: '0字符'
       right_indent: '0字符'
       first_line_indent: '0字符'
-      builtin_style_name: 正文
     font:
       chinese_font_name: 黑体
       english_font_name: Times New Roman
@@ -412,7 +401,6 @@ references:
       left_indent: '0字符'
       right_indent: '0字符'
       first_line_indent: '-2字符'
-      builtin_style_name: 正文
     font:
       chinese_font_name: 宋体
       english_font_name: Times New Roman

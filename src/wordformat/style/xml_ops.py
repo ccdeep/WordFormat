@@ -27,6 +27,9 @@ def rPr_set_font(rPr, cn_name=None, en_name=None):
         rPr.insert(0, rFonts)
     if cn_name:
         rFonts.set(qn("w:eastAsia"), str(cn_name))
+        # 歧义宽度字符（引号/破折号等）的字体槽位由 hint 裁决：不写 hint 会被
+        # hAnsi（西文字体）渲染成半角样式（详见需求文档 D4.1 与 docx-quote-fix 机理）
+        rFonts.set(qn("w:hint"), "eastAsia")
     if en_name:
         rFonts.set(qn("w:ascii"), str(en_name))
         rFonts.set(qn("w:hAnsi"), str(en_name))

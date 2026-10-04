@@ -153,6 +153,17 @@ class TreeNormalizationStage:
         return ctx
 
 
+def _cfg_get(node, name):
+    """读取配置节点字段：配置节点是普通 dict（load_config 未包 DotDict），
+    getattr 对 dict 恒为 None——这正是上游样式定义修正从未生效的原因；
+    dict 与属性两种形态都支持。"""
+    if node is None:
+        return None
+    if isinstance(node, dict):
+        return node.get(name)
+    return getattr(node, name, None)
+
+
 class StyleDefinitionFixStage:
     """修正样式定义（仅 apply 模式）"""
 
@@ -161,24 +172,34 @@ class StyleDefinitionFixStage:
 
         python-docx 的 Style.font API 覆盖 size/color/bold/italic/underline，
         但 eastAsia 字体名需通过 XML 设置（Font 类不支持该属性）。
+
+        字段兼容两种配置形态：模板示例把字符格式放在 font: 子节点、
+        abstract.title 又放在顶层——这里优先读 font: 子节点，缺失时回落顶层。
+        （此前只读顶层，按示例写的配置会让样式定义修正整体空转。）
         """
+        font_cfg = _cfg_get(cfg, "font")
+
+        def _attr(name):
+            val = _cfg_get(font_cfg, name)
+            return val if val is not None else _cfg_get(cfg, name)
+
         # 字体名：西文用 style.font.name，东亚用 XML（python-docx 不支持 eastAsia）
-        cn_name = getattr(cfg, "chinese_font_name", None)
-        en_name = getattr(cfg, "english_font_name", None)
+        cn_name = _attr("chinese_font_name")
+        en_name = _attr("english_font_name")
         if cn_name or en_name:
             from wordformat.style.xml_ops import ensure_rPr, rPr_set_font
 
             rPr = ensure_rPr(style.element)
             rPr_set_font(rPr, cn_name=cn_name, en_name=en_name)
 
-        font_size = getattr(cfg, "font_size", None)
+        font_size = _attr("font_size")
         if font_size is not None:
             try:
                 style.font.size = Pt(FontSize(font_size).rel_value)
             except Exception as e:
                 logger.warning(f"设置样式 '{style_name}' 字号失败: {e}")
 
-        font_color = getattr(cfg, "font_color", None)
+        font_color = _attr("font_color")
         if font_color is not None:
             try:
                 rgb = FontColor(font_color).rel_value
@@ -186,15 +207,15 @@ class StyleDefinitionFixStage:
             except Exception as e:
                 logger.warning(f"设置样式 '{style_name}' 颜色失败: {e}")
 
-        bold = getattr(cfg, "bold", None)
+        bold = _attr("bold")
         if bold is not None:
             style.font.bold = bold
 
-        italic = getattr(cfg, "italic", None)
+        italic = _attr("italic")
         if italic is not None:
             style.font.italic = italic
 
-        underline = getattr(cfg, "underline", None)
+        underline = _attr("underline")
         if underline is not None:
             style.font.underline = underline
 
@@ -205,8 +226,15 @@ class StyleDefinitionFixStage:
         行单位（段前/段后间距）和字符单位（缩进）因 python-docx 不支持，
         回退到 XML 操作。
         """
+        # 段落属性兼容 paragraph: 子节点与顶层两种形态
+        para_cfg = _cfg_get(cfg, "paragraph")
+
+        def _pattr(name):
+            val = _cfg_get(para_cfg, name)
+            return val if val is not None else _cfg_get(cfg, name)
+
         # --- 对齐方式（python-docx API） ---
-        alignment = getattr(cfg, "alignment", None)
+        alignment = _pattr("alignment")
         if alignment is not None:
             try:
                 style.paragraph_format.alignment = Alignment(alignment).rel_value
@@ -214,12 +242,12 @@ class StyleDefinitionFixStage:
                 logger.warning(f"设置样式 '{style_name}' 对齐方式失败: {e}")
 
         # --- 行距（python-docx API） ---
-        line_spacingrule = getattr(cfg, "line_spacingrule", None)
+        line_spacingrule = _pattr("line_spacingrule")
         if line_spacingrule is not None:
             try:
                 lsr = LineSpacingRule(line_spacingrule)
                 style.paragraph_format.line_spacing_rule = lsr.rel_value
-                line_spacing = getattr(cfg, "line_spacing", None)
+                line_spacing = _pattr("line_spacing")
                 if line_spacing is not None:
                     ls = LineSpacing(line_spacing)
                     if ls.rel_unit == "pt":
@@ -239,7 +267,7 @@ class StyleDefinitionFixStage:
             ("space_before", SpaceBefore, "before"),
             ("space_after", SpaceAfter, "after"),
         ]:
-            val = getattr(cfg, attr_name, None)
+            val = _pattr(attr_name)
             if val is None:
                 continue
             try:
@@ -255,7 +283,7 @@ class StyleDefinitionFixStage:
                 logger.warning(f"设置样式 '{style_name}' {attr_name} 失败: {e}")
 
         # --- 缩进（仅支持字符单位，需 XML） ---
-        first_line_indent = getattr(cfg, "first_line_indent", None)
+        first_line_indent = _pattr("first_line_indent")
         if first_line_indent is not None:
             try:
                 inst = FirstLineIndent(first_line_indent)
@@ -274,7 +302,7 @@ class StyleDefinitionFixStage:
             ("left_indent", LeftIndent, "R"),
             ("right_indent", RightIndent, "X"),
         ]:
-            val = getattr(cfg, attr_name, None)
+            val = _pattr(attr_name)
             if val is None:
                 continue
             try:

@@ -90,12 +90,16 @@ class NumberingConfig(dict):
         return val
 
 
-def _walk_config_for_styles(obj, style_map: dict[str, object]) -> None:
+def _walk_config_for_styles(obj, style_map: dict[str, object], parent=None, key_in_parent=None) -> None:
     if not isinstance(obj, dict):
         return
     eng_name = _resolve_builtin_style_name(obj)
     if eng_name and isinstance(eng_name, str):
-        style_map[eng_name] = obj
+        # 模板 schema 把 builtin_style_name 写在 paragraph: 子节点里，而样式定义修正
+        # 需要 font:/paragraph: 全量字段——登记其父节点（样式级节点）而非 paragraph 节点，
+        # 否则字体/缩进字段够不着，样式定义修正整体空转（实测毕设 heading 样式未被修正）
+        node = parent if (key_in_parent == "paragraph" and parent is not None) else obj
+        style_map[eng_name] = node
     for _key, val in obj.items():
         if isinstance(val, dict):
-            _walk_config_for_styles(val, style_map)
+            _walk_config_for_styles(val, style_map, parent=obj, key_in_parent=_key)

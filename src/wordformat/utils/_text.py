@@ -107,6 +107,11 @@ def get_paragraph_numbering_text(paragraph: Paragraph) -> str:
             fmt_for_level = _get_level_fmt(abstract_num, lvl_idx)
             result = result.replace(placeholder, _format_number(lvl_val, fmt_for_level))
 
+    # 上级占位符在计数器缺失时（如章标题编号由独立列表管理）按 1 兜底，
+    # 否则 "%1" 会原样泄漏进识别输入与 JSON 文本（实测毕设标题形如 "%1.1. 研究背景"，
+    # 并卡死标题层级校准正则）
+    result = re.sub(r"%\d+", "1", result)
+
     return result
 
 

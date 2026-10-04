@@ -118,7 +118,7 @@ HEADING_LEVEL_CATS = {"heading_level_1", "heading_level_2", "heading_level_3"}
 # 第X章 / 第1章（中文数字或阿拉伯数字）
 _HEADING_CHAPTER_RE = re.compile(r"^第\s*[一二三四五六七八九十百千零0-9]+\s*章")
 # 数字编号：1 / 1.1 / 1.1.1（编号后必须跟顿号/点/空格+标题文字，防止误吞正文数字）
-_HEADING_NUM_RE = re.compile(r"^(\d{1,2}(?:\.\d{1,2}){0,2})(?![.\d])(?:[、.．]?\s*\S)")
+_HEADING_NUM_RE = re.compile(r"^(\d{1,2}(?:\.\d{1,2}){0,3})(?!\.?\d)(?:[、.．]|\s+)\s*\S")
 # 中文数字编号：一、/ 二、…（须跟顿号/点/空格，防止"一是…"误判）
 _HEADING_CN_NUM_RE = re.compile(r"^[一二三四五六七八九十]{1,3}(?=[、.．]|\s+\S)")
 
@@ -261,6 +261,7 @@ class DocxBase:
         _gate_abstract_content(result)
         _apply_footer(result)
         _fix_toc(result)
+        _fix_toc_lines(result)
         _force_captions(result)
         _neutralize_appendix(result)
         _apply_section_state(result)
@@ -381,6 +382,37 @@ def _force_captions(result: list[dict]) -> None:
         item["comment"] = "题注（图/表前缀强制规则）"
         item["score"] = 0.9
         item["needs_review"] = False
+
+
+# 目录行页码尾：阿拉伯或罗马数字（毕设目录"摘 要	I"、"第1章 绪论	1"、"1.1.	研究背景	1"）
+_TOC_PAGE_TAIL_RE = re.compile(r"[0-9IVXivx]{1,6}$")
+
+
+def _fix_toc_lines(result: list[dict]) -> None:
+    """目录行（缺口清单 P1-3）：heading_mulu 之后、行尾带页码的制表行 → toc_line。
+
+    判别依据：目录行的本质特征是"标题文字 + 制表位引导的页码"，与层级无关——
+    目录区里连"摘 要 I"、"第1章 绪论 1"都是目录行，不能按编号或层级判。
+    目录区在第一个不带页码尾的实质行处结束（真标题如"第1章 绪论"无页码尾）。
+    模型把目录行整体误判为 heading_level_2/3 或摘要标题（实测 19/19 错）。"""
+    in_toc = False
+    for item in result:
+        cat = item["category"]
+        t = (item.get("paragraph") or "").strip()
+        if cat == "heading_mulu":
+            in_toc = True
+            continue
+        if not in_toc:
+            continue
+        if not t:
+            continue
+        if not (("	" in t or "　" in t) and _TOC_PAGE_TAIL_RE.search(t)):
+            break  # 目录区结束：遇到无页码尾的实质行（真标题）
+        if cat != "toc_line":
+            item["category"] = "toc_line"
+            item["comment"] = "目录行（结构规则：目录区内页码尾行）"
+            item["score"] = 1.0
+            item["needs_review"] = False
 
 
 def _heading_number_level(text: str) -> int | None:
