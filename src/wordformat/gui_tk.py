@@ -11,6 +11,8 @@ Tab2 格式方案：
 import copy
 import json
 import os
+import queue
+import tempfile
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -138,6 +140,11 @@ class App:
         self.data: list[dict] = []
         self.docx_path: str | None = None
         self._busy = False
+        self._progress_queue: queue.Queue | None = None
+        self._progress_sink_id = None
+        self._worker_thread: threading.Thread | None = None
+        self._task_done = False
+        self._task_error: str | None = None
         self._cat_editor = None  # 单元格上的改判下拉
 
         nb = ttk.Notebook(root)
@@ -444,6 +451,75 @@ class App:
                 self.cfg_dict = {}
             self.status_var.set(f"已载入内置方案: {name}")
 
+    # ── 后台任务进度反馈 ──────────────────────────────────
+    def _start_progress(self, title: str):
+        """把 wordformat 管线的日志实时转发到状态栏（经队列，线程安全）。"""
+        from loguru import logger
+        self._progress_queue = queue.Queue()
+        self._progress_sink_id = logger.add(
+            lambda msg: self._progress_queue.put(str(msg).rstrip()),
+            level="INFO", format="{message}")
+        self._set_busy(True, title)
+        self.root.configure(cursor="watch")
+        self.root.after(120, self._poll)
+
+    def _stop_progress(self):
+        from loguru import logger
+        if self._progress_sink_id is not None:
+            try:
+                logger.remove(self._progress_sink_id)
+            except Exception:
+                pass
+            self._progress_sink_id = None
+        self.root.configure(cursor="")
+
+    def _poll(self):
+        """主线程轮询器：分发后台任务结果 + 转发管线日志 + 线程意外退出兜底。"""
+        tq = self._task_queue
+        if tq is not None:
+            try:
+                while True:
+                    kind, payload = tq.get_nowait()
+                    if kind == "log":
+                        self.status_var.set("⏳ " + str(payload)[:90])
+                        continue
+                    self._stop_progress()
+                    if kind == "done":
+                        self._done_handler(payload)
+                    else:
+                        self._fail_handler(payload)
+                    return
+            except queue.Empty:
+                pass
+        if not self._busy:
+            return
+        # 兜底：后台线程意外退出（未走正常完成/失败路径）时给出明确报错，
+        # 杜绝"点了没反应"的静默失败
+        wt = self._worker_thread
+        if wt is not None and not wt.is_alive() and not self._task_done:
+            self._stop_progress()
+            self._set_busy(False, "后台任务异常退出")
+            err = self._task_error or "后台线程意外终止，原因未知"
+            messagebox.showerror("后台任务异常退出", err)
+            return
+        self.root.after(200, self._poll)
+
+    def _task_done_handler(self, result):
+        self._stop_progress()
+        self._set_busy(False, "")
+        if self._task_kind == "detect":
+            self._populate(result)
+        else:
+            self._apply_done(result)
+
+    def _task_fail_handler(self, msg: str):
+        self._stop_progress()
+        self._set_busy(False, "任务失败")
+        if self._task_kind == "detect":
+            messagebox.showerror("识别失败", msg)
+        else:
+            messagebox.showerror("套用失败", msg)
+
     # ── 识别 ─────────────────────────────────────────────
     def browse_docx(self):
         path = filedialog.askopenfilename(title="选择 Word 文件",
@@ -465,16 +541,45 @@ class App:
             messagebox.showwarning("提示", "请先选择有效的 Word 文件")
             return
         self.docx_path = docx
-        self._set_busy(True, "识别中…（公式段/表格/目录行走结构规则，其余走模型）")
-        threading.Thread(target=self._detect_worker, args=(docx,), daemon=True).start()
+        self._start_task("detect", "识别中…（模型加载与推理，进度见状态栏）",
+                         self._detect_worker, (docx,))
+
+    def _start_task(self, kind: str, title: str, target, args: tuple,
+                    done=None, fail=None):
+        """启动后台任务。结果经队列汇报，由主线程轮询分发：
+        done(result)/fail(msg) 均在主线程执行；失败/意外退出有明确报错，
+        绝不静默，也彻底避免跨线程调用 tkinter。"""
+        self._task_kind = kind
+        self._task_done = False
+        self._task_error = None
+        self._progress_queue = queue.Queue()
+        self._task_queue = queue.Queue()
+        from loguru import logger
+        self._progress_sink_id = logger.add(
+            lambda msg: self._task_queue.put(("log", str(msg).rstrip())),
+            level="INFO", format="{message}")
+        self._set_busy(True, title)
+        self.root.configure(cursor="watch")
+        self._done_handler = done or self._task_done_handler
+        self._fail_handler = fail or self._task_fail_handler
+
+        def wrapped():
+            try:
+                result = target(*args)
+                self._task_queue.put(("done", result))
+            except BaseException:
+                import traceback
+                self._task_error = traceback.format_exc()
+                self._task_queue.put(("fail", self._task_error))
+            finally:
+                self._task_done = True
+
+        self._worker_thread = threading.Thread(target=wrapped, daemon=True)
+        self._worker_thread.start()
+        self.root.after(120, self._poll)
 
     def _detect_worker(self, docx: str):
-        try:
-            data = DocxBase(docx, configpath=None).parse()
-        except Exception as e:  # 线程内异常必须回主线程报告
-            self.root.after(0, self._detect_failed, str(e))
-            return
-        self.root.after(0, self._populate, data)
+        return DocxBase(docx, configpath=None).parse()
 
     def _populate(self, data: list[dict]):
         self.data = data
@@ -615,22 +720,17 @@ class App:
         json_path = Path(tempfile.gettempdir()) / f"wordformat_gui_{os.getpid()}.json"
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(self.data, f, ensure_ascii=False, indent=2)
-        self._set_busy(True, "套用格式中…")
-        threading.Thread(target=self._apply_worker, args=(
-            str(json_path), self.docx_path, yaml_path,
-            self.comments_var.get()), daemon=True).start()
+        self._start_task("apply", "套用格式中…（样式修正/公式排版/保存，进度见状态栏）",
+                         self._apply_worker,
+                         (str(json_path), self.docx_path, yaml_path,
+                          self.comments_var.get()))
 
     def _apply_worker(self, json_path: str, docx: str, yaml_path: str, comments: bool):
-        try:
-            out = auto_format_thesis_document(
-                jsonpath=json_path, docxpath=docx, configpath=yaml_path,
-                savepath=str(Path(docx).parent / "格式化输出"),
-                check=False, skip_comments=not comments,
-            )
-        except Exception as e:
-            self.root.after(0, self._apply_failed, str(e))
-            return
-        self.root.after(0, self._apply_done, out)
+        return auto_format_thesis_document(
+            jsonpath=json_path, docxpath=docx, configpath=yaml_path,
+            savepath=str(Path(docx).parent / "格式化输出"),
+            check=False, skip_comments=not comments,
+        )
 
     def _apply_failed(self, msg: str):
         self._set_busy(False, "套用失败")
@@ -644,6 +744,8 @@ class App:
     # ── 公共 ─────────────────────────────────────────────
     def _set_busy(self, busy: bool, status: str):
         self._busy = busy
+        if not busy:
+            self._stop_progress()
         state = "disabled" if busy else "normal"
         self.detect_btn.configure(state=state)
         self.apply_btn.configure(state="normal" if (not busy and self.data) else "disabled")
