@@ -106,10 +106,26 @@ def _cat_cn(cat: str) -> str:
     return CAT_CN.get(cat, cat)
 
 
+def _builtin_presets() -> dict[str, Path]:
+    """内置预设：{方案名: 路径}。
+
+    预设 YAML 打包进 wordformat/data/presets/（--collect-all 会带进冻结环境），
+    开发环境与冻结环境都通过 gui_tk.py 同级的 data/presets 解析。
+    """
+    presets: dict[str, Path] = {}
+    pkg_dir = Path(__file__).resolve().parent / "data" / "presets"
+    if pkg_dir.is_dir():
+        for f in sorted(pkg_dir.glob("*.yaml")):
+            presets[f.stem] = f
+    return presets
+
+
 def _default_preset() -> str:
-    """随仓库分发的北理工预设；不存在则留空让用户自选。"""
-    candidate = Path(__file__).resolve().parents[2] / "example" / "北理工毕设报告.yaml"
-    return str(candidate) if candidate.exists() else ""
+    """默认预设路径（北理工毕设报告）；找不到返回空串。"""
+    presets = _builtin_presets()
+    if "北理工毕设报告" in presets:
+        return str(presets["北理工毕设报告"])
+    return str(next(iter(presets.values()))) if presets else ""
 
 
 class App:
@@ -153,6 +169,16 @@ class App:
             row=1, column=3, padx=(6, 0), pady=(4, 0))
         ttk.Button(top, text="去「格式方案」页编辑 ↗", command=lambda: self._select_tab(1)).grid(
             row=1, column=4, padx=(6, 0), pady=(4, 0))
+        ttk.Label(top, text="内置方案:").grid(row=2, column=0, sticky="w", pady=(4, 0))
+        self.preset_cb = ttk.Combobox(top, width=54, state="readonly")
+        self.preset_cb["values"] = list(_builtin_presets()) or ["（未找到内置方案）"]
+        if _builtin_presets():
+            self.preset_cb.set("北理工毕设报告" if "北理工毕设报告" in _builtin_presets()
+                               else next(iter(_builtin_presets())))
+        self.preset_cb.grid(row=2, column=1, columnspan=2, sticky="w", padx=4, pady=(4, 0))
+        ttk.Label(top, text="选中即载入，也可在「格式方案」页编辑",
+                  foreground="#888888").grid(row=2, column=3, columnspan=2, sticky="w", pady=(4, 0))
+        self.preset_cb.bind("<<ComboboxSelected>>", self._on_preset_selected)
 
         bar = ttk.Frame(tab)
         bar.pack(fill="x", pady=6)
@@ -318,8 +344,7 @@ class App:
             messagebox.showerror("打开失败", str(e))
             return
         self.cfg_path_var.set(path)
-        if self.yaml_var and not self.yaml_var.get():
-            self.yaml_var.set(path)
+        self.yaml_var.set(path)  # 两页方案路径始终同步
         self.section_list.selection_clear(0, "end")
         self.section_list.selection_set(0)
         self._on_section_select()
@@ -349,6 +374,7 @@ class App:
             yaml.safe_dump(self.cfg_dict, f, allow_unicode=True, sort_keys=False, width=100)
         # 状态栏反馈即可，避免频繁弹窗打断编辑
         self.status_var.set(f"方案已保存: {path}")
+        self.yaml_var.set(path)  # 保存后立即作为套用方案
 
     # ── 参考文档反推（M4）─────────────────────────────────
     def extract_from_reference(self):
@@ -389,6 +415,34 @@ class App:
                 break
         if nb is not None:
             nb.select(index)
+
+    # ── 方案路径 ─────────────────────────────────────────
+    def _resolve_yaml_path(self) -> tuple[str, str]:
+        """解析套用应使用的方案路径，返回 (路径, 说明)。
+
+        Tab1 方案框为空时自动回落内置预设（修复：冻结版默认方案不可达）。"""
+        path = self.yaml_var.get().strip()
+        if path and Path(path).exists():
+            return path, ""
+        fallback = _default_preset()
+        if fallback:
+            if path:
+                return fallback, f"填写的方案不存在，已自动改用内置方案: {fallback}"
+            return fallback, "未填写方案，已自动使用内置预设"
+        return path, ""
+
+    def _on_preset_selected(self, _event=None):
+        name = self.preset_cb.get()
+        presets = _builtin_presets()
+        if name in presets:
+            path = str(presets[name])
+            self.yaml_var.set(path)
+            self.cfg_path_var.set(path)
+            try:
+                self.cfg_dict = self._load_cfg_dict(path)
+            except Exception:
+                self.cfg_dict = {}
+            self.status_var.set(f"已载入内置方案: {name}")
 
     # ── 识别 ─────────────────────────────────────────────
     def browse_docx(self):
@@ -550,10 +604,14 @@ class App:
         if not self.data or not self.docx_path:
             messagebox.showwarning("提示", "请先识别")
             return
-        yaml_path = self.yaml_var.get().strip()
+        yaml_path, note = self._resolve_yaml_path()
         if not yaml_path or not Path(yaml_path).exists():
-            messagebox.showwarning("提示", "格式方案 YAML 不存在")
+            messagebox.showwarning(
+                "提示", "未找到格式方案：请到「格式方案」页打开/提取，或在下方选择内置方案")
             return
+        if note:
+            self.yaml_var.set(yaml_path)
+            self.status_var.set(note)
         json_path = Path(tempfile.gettempdir()) / f"wordformat_gui_{os.getpid()}.json"
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(self.data, f, ensure_ascii=False, indent=2)
