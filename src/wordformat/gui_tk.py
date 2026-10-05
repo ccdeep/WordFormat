@@ -12,6 +12,7 @@ import copy
 import json
 import os
 import queue
+import shutil
 import tempfile
 import threading
 import tkinter as tk
@@ -148,20 +149,35 @@ def _builtin_presets() -> dict[str, Path]:
 
 
 def _user_presets_dir() -> Path:
-    """用户方案固定文件夹：随软件（开发态=仓库根/presets，打包态=exe 同级/presets）。"""
-    from wordformat.settings import BASE_DIR
-    d = Path(BASE_DIR) / "presets"
+    """用户方案固定文件夹：%APPDATA%/WordFormat/presets。
+
+    与软件绑定的固定位置，与 exe/快捷方式在哪无关；
+    内置预设在首次运行时播种到此处，用户可直接修改自己的副本。"""
+    base = os.getenv("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+    d = Path(base) / "WordFormat" / "presets"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def _all_presets() -> dict[str, Path]:
-    """内置预设 + 用户方案文件夹（用户同名覆盖内置）。"""
-    presets = dict(_builtin_presets())
+def _seed_user_presets() -> None:
+    """把内置预设播种到用户方案文件夹（同名不覆盖，保护用户修改）。"""
     user_dir = _user_presets_dir()
-    if user_dir.is_dir():
-        for f in sorted(user_dir.glob("*.yaml")):
-            presets[f.stem] = f
+    for name, src in _builtin_presets().items():
+        dst = user_dir / (name + ".yaml")
+        if not dst.exists():
+            try:
+                shutil.copy2(src, dst)
+            except OSError:
+                pass  # 播种失败不影响使用：内置预设仍可从程序包内读取
+
+
+def _all_presets() -> dict[str, Path]:
+    """全部可用方案 = 用户方案文件夹（已播种内置副本）+ 程序包内预设兜底。"""
+    _seed_user_presets()
+    user_dir = _user_presets_dir()
+    presets = {f.stem: f for f in sorted(user_dir.glob("*.yaml"))}
+    for name, path in _builtin_presets().items():
+        presets.setdefault(name, path)
     return presets
 
 
@@ -232,6 +248,8 @@ class App:
         self.preset_cb.bind("<<ComboboxSelected>>", self._on_preset_selected)
         ttk.Button(top, text="查看/编辑格式…", command=self.open_preset_editor).grid(
             row=2, column=3, padx=(6, 0), pady=(4, 0))
+        ttk.Button(top, text="打开方案文件夹", command=self.open_presets_folder).grid(
+            row=2, column=4, padx=(6, 0), pady=(4, 0))
 
         bar = ttk.Frame(tab)
         bar.pack(fill="x", pady=6)
@@ -575,6 +593,12 @@ class App:
                 return fallback, f"填写的方案不存在，已自动改用内置方案: {fallback}"
             return fallback, "未填写方案，已自动使用内置预设"
         return path, ""
+
+    def open_presets_folder(self):
+        """在资源管理器中打开用户方案固定文件夹。"""
+        d = _user_presets_dir()
+        self.status_var.set(f"方案文件夹: {d}")
+        os.startfile(str(d))
 
     def open_preset_editor(self):
         """载入当前方案（未选则用内置预设）并切换到「格式方案」页，弹总览。"""
