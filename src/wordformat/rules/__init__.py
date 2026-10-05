@@ -18,7 +18,7 @@ from .heading import HeadingLevel1Node, HeadingLevel2Node, HeadingLevel3Node
 from .keywords import KeywordsCN, KeywordsEN
 from .math import MathBlock
 from .node import FormatNode
-from .object import FigureImage, TableObject
+from .object import DocumentTitleNode, FigureImage, TableObject
 from .references import ReferenceEntry, References
 
 __all__ = [
@@ -37,6 +37,7 @@ __all__ = [
     "TableTextNode",
     "CaptionFigure",
     "CaptionTable",
+    "DocumentTitleNode",
     "FigureImage",
     "TableObject",
     "HeadingLevel1Node",

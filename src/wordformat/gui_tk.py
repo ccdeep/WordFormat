@@ -75,7 +75,7 @@ CN_LIST_ORDERED = _CATEGORY_ORDER_CN
 # ── 可配置节（Tab2 编辑面板）────────────────────────────────
 # kind: full = 字体+段落全量参数；align = 仅对齐/缩进（图片段落）
 _SECTIONS = [
-    ("document.title", "文章标题", "full"),
+    ("document.title", "文档标题", "full"),
     ("body.text", "正文", "full"),
     ("headings.level_1", "一级标题", "full"),
     ("headings.level_2", "二级标题", "full"),

@@ -406,11 +406,6 @@ class FormattingExecutionStage:
                 node.value.get("category", "") if isinstance(node.value, dict) else ""
             )
 
-            # 低置信文档标题不排版（可能是误识别的节标题，需人工在预览中确认/改判）
-            if (category == "document_title" and isinstance(node.value, dict)
-                    and node.value.get("needs_review")):
-                return
-
             # 遇到一级标题时递增章节号
             if category == "heading_level_1":
                 chapter_index += 1

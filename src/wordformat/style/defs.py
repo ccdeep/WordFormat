@@ -206,21 +206,35 @@ class FontName(UnitLabelEnum):
     """
 
     def is_chinese(self, value: str):
-        return value in [member.value for member in ChineseFontType]
+        """字体名含 CJK 字符即视为中文字体（写 eastAsia 槽）。
+
+        此前用 ChineseFontType 枚举白名单判断，华文细黑/方正/汉仪等
+        常用中文字体不在枚举里，被误判为西文字体——只写 ascii 槽，
+        中文字符实际渲染走 eastAsia 槽继承正文宋体，字体设置不生效。"""
+        if value in [member.value for member in ChineseFontType]:
+            return True
+        return any("一" <= ch <= "鿿" for ch in (value or ""))
 
     def base_set(self, docx_obj: Run, **kwargs):
-        """设置无单位属性"""
-        if self.is_chinese(self.value):
+        """设置字体。按槽位分流：slot='cn' 写 eastAsia 槽、slot='en' 写
+        ascii/hAnsi 槽；slot 缺省时按字体名是否含 CJK 判断。
+
+        此前按"字体名是否中文"路由且不写槽位——西文字体名是中文字体名时
+        （如标题西文=黑体/华文细黑）ascii 槽永远写不上，西文字体设置失效；
+        theme 属性存在时 Word 忽略显式值，必须同步清除。"""
+        slot = kwargs.get("slot")
+        if slot is None:
+            slot = "cn" if self.is_chinese(self.value) else "en"
+        rPr = docx_obj._element.get_or_add_rPr()
+        rFonts = rPr.get_or_add_rFonts()
+        if slot == "cn":
             run_set_font_name(run=docx_obj, font_name=self.value)
-        else:
-            docx_obj.font.name = self.value
-            # theme 属性存在时 Word 忽略显式值，必须同步清除
-            rPr = docx_obj._element.get_or_add_rPr()
-            rFonts = rPr.find(qn("w:rFonts"))
-            if rFonts is not None:
-                for theme_attr in ("w:asciiTheme", "w:hAnsiTheme"):
-                    if rFonts.get(qn(theme_attr)) is not None:
-                        del rFonts.attrib[qn(theme_attr)]
+            return
+        rFonts.set(qn("w:ascii"), str(self.value))
+        rFonts.set(qn("w:hAnsi"), str(self.value))
+        for theme_attr in ("w:asciiTheme", "w:hAnsiTheme"):
+            if rFonts.get(qn(theme_attr)) is not None:
+                del rFonts.attrib[qn(theme_attr)]
 
 
 class FontSize(UnitLabelEnum):

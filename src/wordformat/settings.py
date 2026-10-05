@@ -52,7 +52,6 @@ VOIDNODELIST = [
     "heading_mulu",
     "heading_fulu",
     "other",  # 封面、声明页等无需格式化的内容
-    "document_title",  # 文档标题（后处理扩展标签，不参与格式化）
     "footer",  # 页脚/AI 生成声明（后处理扩展标签，不参与格式化）
     "equation_para",  # 公式段落：由 EquationNumberingStage 专门排版
     "toc_line",  # 目录行（结构规则标签）：格式不动

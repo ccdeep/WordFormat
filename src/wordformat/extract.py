@@ -22,6 +22,7 @@ W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 # 顺序即优先级；一个样式可喂多个 section（09- 同时是参考文献/致谢标题，07- 同图表题）
 # 语义匹配表：section → (名称关键词列表, styleId 精确值列表)，顺序即优先级
 _SECTIONS = [
+    ("document.title", ["论文封面中文标题", "封面标题"], ["11-"]),
     ("abstract.english.title", ["英文摘要标题"], ["20-"]),
     ("abstract.english.keywords", ["英文摘要关键词"], ["21-"]),
     ("abstract.english.body", ["英文摘要正文"], ["22-"]),

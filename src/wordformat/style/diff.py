@@ -321,10 +321,10 @@ class CharacterStyle:
                     self.font_color.format(docx_obj=run)
                     tmp_str = f"字体颜色修正:{str(self.font_color)};"
                 case "font_name_cn":
-                    self.font_name_cn.format(docx_obj=run)
+                    self.font_name_cn.format(docx_obj=run, slot="cn")
                     tmp_str = f"中文字体修正：{str(self.font_name_cn)};"
                 case "font_name_en":
-                    self.font_name_en.format(docx_obj=run)
+                    self.font_name_en.format(docx_obj=run, slot="en")
                     tmp_str = f"英文字体修正：{str(self.font_name_en)};"
                 case _:
                     logger.warning(f"未知的 diff_type: {diff.diff_type}")
