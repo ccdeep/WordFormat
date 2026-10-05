@@ -269,6 +269,8 @@ class DocxBase:
         _fix_sequence(result)
         _fix_references_content(result)
         _fix_heading_levels(result)
+        _gate_keywords(result)
+        _dedupe_single_instance(result)
         return result
 
 
@@ -477,6 +479,60 @@ def _fix_references_content(result: list[dict]) -> None:
         )
         item["score"] = 1.0
         item["needs_review"] = False
+
+
+# ===== 关键词标签门控 + 单实例类别去重 =====
+# 一篇文档里理论上只出现一次的类别（摘要标题/关键词/文章标题/参考文献标题/
+# 致谢标题），重复即有误判；其中关键词绝大多数以"关键词"/"Keywords"开头
+_KW_CN_LABEL_RE = re.compile(r"^\s*[【\[]?\s*关键词\s*[】\]]?\s*[:：]?")
+_KW_EN_LABEL_RE = re.compile(r"^\s*Key\s*Words?\s*[:：]?", re.IGNORECASE)
+_SINGLE_INSTANCE_CATS = (
+    "document_title", "abstract_chinese_title", "abstract_english_title",
+    "references_title", "acknowledgements_title",
+    "keywords_chinese", "keywords_english",
+)
+
+
+def _gate_keywords(result: list[dict]) -> None:
+    """关键词标签门控：中文关键词行应以"关键词"开头、英文以 Keywords 开头；
+    紧随关键词行之后 1-2 段视为换行续行放行（关键词行常被硬回车拆成两段）；
+    其余降为正文并标记复核（该类别是模型误判率最高的一类）。"""
+    last_kw = None
+    for i, item in enumerate(result):
+        cat = item["category"]
+        if cat not in ("keywords_chinese", "keywords_english"):
+            continue
+        t = (item.get("paragraph") or "").strip()
+        label_re = _KW_CN_LABEL_RE if cat == "keywords_chinese" else _KW_EN_LABEL_RE
+        ok = bool(t and label_re.match(t))
+        if not ok and last_kw is not None and i - last_kw <= 2:
+            ok = True  # 紧邻续行
+        if ok:
+            last_kw = i
+            continue
+        item["category"] = "body_text"
+        item["comment"] = "关键词门控：无标签且非紧邻续行，降为正文（原判 " + cat + "）"
+        item["needs_review"] = True
+
+
+def _dedupe_single_instance(result: list[dict]) -> None:
+    """单实例类别去重：重复时保留置信度最高者（同分取靠前），
+    其余降为正文并标记复核，预览中可人工确认。"""
+    groups: dict[str, list[int]] = {}
+    for i, item in enumerate(result):
+        cat = item["category"]
+        if cat in _SINGLE_INSTANCE_CATS:
+            groups.setdefault(cat, []).append(i)
+    for cat, idxs in groups.items():
+        if len(idxs) <= 1:
+            continue
+        best = max(idxs, key=lambda i: (result[i].get("score", 0), -i))
+        for i in idxs:
+            if i == best:
+                continue
+            result[i]["category"] = "body_text"
+            result[i]["comment"] = "单实例去重：" + cat + " 重复，保留置信度最高处"
+            result[i]["needs_review"] = True
 
 
 def _fix_heading_levels(result: list[dict]) -> None:
