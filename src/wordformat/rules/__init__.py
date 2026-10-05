@@ -12,7 +12,7 @@ from .abstract import (
     AbstractTitleEN,
 )
 from .acknowledgement import Acknowledgements, AcknowledgementsCN
-from .body import BodyText
+from .body import BodyText, TableTextNode
 from .caption import CaptionFigure, CaptionTable
 from .heading import HeadingLevel1Node, HeadingLevel2Node, HeadingLevel3Node
 from .keywords import KeywordsCN, KeywordsEN
@@ -34,6 +34,7 @@ __all__ = [
     "Acknowledgements",
     "AcknowledgementsCN",
     "BodyText",
+    "TableTextNode",
     "CaptionFigure",
     "CaptionTable",
     "FigureImage",

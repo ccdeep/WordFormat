@@ -106,6 +106,8 @@ class BodyText(FormatNode):
     )
     RULES = {"punctuation": "_check_punctuation"}
 
+
+
     def _check_punctuation(self, doc, rule_cfg, p: bool = False):
         """检测中文正文中的半角标点，锚在具体字符上（拆分 run）。"""
         if self.paragraph is None:
@@ -136,6 +138,26 @@ class BodyText(FormatNode):
                 f'规范：应使用全角中文标点符号"{full}(中文)"'
             )
             self.add_comment(doc=doc, runs=target_run, text=msg)
+@register("table_text")
+class TableTextNode(BodyText):
+    """表格内文字节点（模板 07-1：宋体小四居中）。
+
+    继承正文的字符/段落规则；不启用标点全角规则（表格内常含数字、单位）。"""
+
+    NODE_TYPE = "tables.text"
+    NODE_LABEL = "表格内文字"
+    DEFAULTS = deep_merge(
+        BASE_FORMAT,
+        {
+            "paragraph": {"alignment": "居中对齐"},
+            "font": {
+                "chinese_font_name": "宋体",
+                "english_font_name": "Times New Roman",
+            },
+        },
+    )
+    RULES = {}
+
 
     def apply_replace(self, doc=None) -> bool:
         """文本替换后清除引用标记格式。

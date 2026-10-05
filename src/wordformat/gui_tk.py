@@ -72,36 +72,61 @@ _CATEGORY_ORDER_CN += [CAT_CN[c] for c in CATEGORIES if c not in _CATEGORY_ORDER
 CN_LIST_ORDERED = _CATEGORY_ORDER_CN
 
 # ── 可配置节（Tab2 编辑面板）────────────────────────────────
+# kind: full = 字体+段落全量参数；align = 仅对齐/缩进（图片段落）
 _SECTIONS = [
-    ("body.text", "正文"),
-    ("headings.level_1", "一级标题"),
-    ("headings.level_2", "二级标题"),
-    ("headings.level_3", "三级标题"),
-    ("abstract.chinese.title", "中文摘要标题"),
-    ("abstract.chinese.body", "中文摘要正文"),
-    ("abstract.chinese.keywords", "中文关键词"),
-    ("abstract.english.title", "英文摘要标题"),
-    ("abstract.english.body", "英文摘要正文"),
-    ("abstract.english.keywords", "英文关键词"),
-    ("references.title", "参考文献标题"),
-    ("references.entry", "参考文献条目"),
-    ("acknowledgements.title", "致谢标题"),
-    ("figures.caption", "图注"),
-    ("tables.caption", "表注"),
-    ("math.block", "公式段落"),
+    ("body.text", "正文", "full"),
+    ("headings.level_1", "一级标题", "full"),
+    ("headings.level_2", "二级标题", "full"),
+    ("headings.level_3", "三级标题", "full"),
+    ("abstract.chinese.title", "中文摘要标题", "full"),
+    ("abstract.chinese.body", "中文摘要正文", "full"),
+    ("abstract.chinese.keywords", "中文关键词", "full"),
+    ("abstract.english.title", "英文摘要标题", "full"),
+    ("abstract.english.body", "英文摘要正文", "full"),
+    ("abstract.english.keywords", "英文关键词", "full"),
+    ("references.title", "参考文献标题", "full"),
+    ("references.entry", "参考文献条目", "full"),
+    ("acknowledgements.title", "致谢标题", "full"),
+    ("acknowledgements.content", "致谢正文", "full"),
+    ("abstract.chinese.title_content", "中文摘要标题正文", "full"),
+    ("abstract.english.title_content", "英文摘要标题正文", "full"),
+    ("figures.caption", "图注", "full"),
+    ("tables.caption", "表注", "full"),
+    ("tables.text", "表格内文字", "full"),
+    ("math.block", "公式段落", "full"),
+    ("figures.image", "图片段落", "align"),
 ]
-_FONT_FIELDS = ["chinese_font_name", "english_font_name", "font_size", "bold"]
-_PARA_FIELDS = ["alignment", "line_spacingrule", "line_spacing",
-                "space_before", "space_after", "first_line_indent"]
-_FONT_FIELD_CN = {"chinese_font_name": "中文字体", "english_font_name": "西文字体",
-                  "font_size": "字号", "bold": "加粗"}
-_PARA_FIELD_CN = {"alignment": "对齐", "line_spacingrule": "行距规则",
-                  "line_spacing": "行距值", "space_before": "段前",
-                  "space_after": "段后", "first_line_indent": "首行缩进"}
+# 不通过本页排版的类别（识别预览里可能出现，特此说明）
+_NON_LAYOUT_CATS = "文档标题、目录标题、目录行、附录标题、页脚、其他（封面/声明）"
 _SIZE_CHOICES = ["初号", "小初", "一号", "小一", "二号", "小二", "三号", "小三",
                  "四号", "小四", "五号", "小五", "六号", "七号"]
 _ALIGN_CHOICES = ["两端对齐", "居中对齐", "左对齐", "右对齐"]
 _RULE_CHOICES = ["单倍行距", "1.5倍行距", "2倍行距", "多倍行距", "固定值", "最小值"]
+_BOLD_CHOICES = ["加粗", "不加粗"]
+_ITALIC_CHOICES = ["斜体", "不斜体"]
+_UNDERLINE_CHOICES = ["下划线", "无下划线"]
+_FONT_ROWS = [
+    ("中文字体", "entry", "chinese_font_name"),
+    ("西文字体", "entry", "english_font_name"),
+    ("字号", ("combobox", _SIZE_CHOICES), "font_size"),
+    ("加粗", ("combobox", _BOLD_CHOICES), "bold"),
+    ("斜体", ("combobox", _ITALIC_CHOICES), "italic"),
+    ("下划线", ("combobox", _UNDERLINE_CHOICES), "underline"),
+    ("字体颜色", "entry", "font_color"),
+]
+_PARA_ROWS = [
+    ("对齐", ("combobox", _ALIGN_CHOICES), "alignment"),
+    ("行距规则", ("combobox", _RULE_CHOICES), "line_spacingrule"),
+    ("行距值", "entry", "line_spacing"),
+    ("段前", "entry", "space_before"),
+    ("段后", "entry", "space_after"),
+    ("左缩进", "entry", "left_indent"),
+    ("右缩进", "entry", "right_indent"),
+    ("首行缩进", "entry", "first_line_indent"),
+]
+_PARA_FIELD_KEYS = [f for _, _, f in _PARA_ROWS]
+_BOOL_LABELS = {"bold": ("加粗", "不加粗"), "italic": ("斜体", "不斜体"),
+                "underline": ("下划线", "无下划线")}
 
 
 def _cat_cn(cat: str) -> str:
@@ -186,6 +211,8 @@ class App:
         ttk.Label(top, text="选中即载入，也可在「格式方案」页编辑",
                   foreground="#888888").grid(row=2, column=3, columnspan=2, sticky="w", pady=(4, 0))
         self.preset_cb.bind("<<ComboboxSelected>>", self._on_preset_selected)
+        ttk.Button(top, text="查看/编辑格式…", command=self.open_preset_editor).grid(
+            row=2, column=3, padx=(6, 0), pady=(4, 0))
 
         bar = ttk.Frame(tab)
         bar.pack(fill="x", pady=6)
@@ -241,52 +268,104 @@ class App:
         top.pack(fill="x", pady=(0, 6))
         ttk.Label(top, text="方案文件:").grid(row=0, column=0, sticky="w")
         self.cfg_path_var = tk.StringVar()
-        ttk.Entry(top, textvariable=self.cfg_path_var, width=64).grid(row=0, column=1, padx=4)
+        ttk.Entry(top, textvariable=self.cfg_path_var, width=58).grid(row=0, column=1, padx=4)
         ttk.Button(top, text="打开…", command=self.cfg_open).grid(row=0, column=2)
         ttk.Button(top, text="另存为…", command=self.cfg_save_as).grid(row=0, column=3, padx=4)
         ttk.Button(top, text="从参考文档提取…", command=self.extract_from_reference).grid(row=0, column=4)
         ttk.Button(top, text="保存修改", command=self.cfg_save).grid(row=0, column=5, padx=(8, 0))
+        ttk.Button(top, text="方案总览", command=self._show_overview).grid(row=0, column=6, padx=(6, 0))
 
         body = ttk.Frame(tab)
         body.pack(fill="both", expand=True)
         ttk.Label(body, text="元素类别:").grid(row=0, column=0, sticky="nw")
-        self.section_list = tk.Listbox(body, width=22, height=20, exportselection=False)
-        for _, label in _SECTIONS:
+        self.section_list = tk.Listbox(body, width=22, height=21, exportselection=False)
+        for _, label, _kind in _SECTIONS:
             self.section_list.insert("end", label)
         self.section_list.grid(row=1, column=0, sticky="ns")
         self.section_list.bind("<<ListboxSelect>>", self._on_section_select)
-        ttk.Label(body, text="（值示例：行距值 '1.5倍' 或 '22磅'；段前段后 '0.5行' 或 '12磅'；"
-                             "缩进 '2字符'，悬挂用 '-2字符'）",
-                  foreground="#888888").grid(row=2, column=0, sticky="w")
+        note = ("值示例：行距值 '1.5倍' 或 '22磅'；段前段后 '0.5行' 或 '12磅'；"
+                "缩进 '2字符'，悬挂用 '-2字符'。未填写的字段保持原值。")
+        ttk.Label(body, text=note, foreground="#888888",
+                  wraplength=210, justify="left").grid(row=2, column=0, sticky="nw")
+        ttk.Label(body, text="以下类别不通过本页排版：\n" + _NON_LAYOUT_CATS
+                  + "\n公式段落由软件自动居中/编号。",
+                  foreground="#999999", wraplength=210,
+                  justify="left").grid(row=3, column=0, sticky="nw", pady=(8, 0))
 
-        panel = ttk.LabelFrame(body, text="参数", padding=10)
+        panel = ttk.Frame(body)
         panel.grid(row=1, column=1, sticky="nw", padx=(12, 0))
-        self.fields = {}
-        rows = [
-            ("中文字体", "entry", "font", "chinese_font_name"),
-            ("西文字体", "entry", "font", "english_font_name"),
-            ("字号", ("combobox", _SIZE_CHOICES), "font", "font_size"),
-            ("加粗", ("combobox", ["加粗", "不加粗"]), "font", "bold"),
-            ("对齐", ("combobox", _ALIGN_CHOICES), "paragraph", "alignment"),
-            ("行距规则", ("combobox", _RULE_CHOICES), "paragraph", "line_spacingrule"),
-            ("行距值", "entry", "paragraph", "line_spacing"),
-            ("段前", "entry", "paragraph", "space_before"),
-            ("段后", "entry", "paragraph", "space_after"),
-            ("首行缩进", "entry", "paragraph", "first_line_indent"),
-        ]
-        for i, (label, kind, sub, field) in enumerate(rows):
-            ttk.Label(panel, text=label + ":").grid(row=i, column=0, sticky="w", pady=3)
+
+        # 字体组
+        self.font_frame = ttk.LabelFrame(panel, text="字体", padding=8)
+        self.font_frame.grid(row=0, column=0, sticky="ns", padx=(0, 10))
+        self.font_fields = {}
+        for i, (label, kind, field) in enumerate(_FONT_ROWS):
+            ttk.Label(self.font_frame, text=label + ":").grid(row=i, column=0, sticky="w", pady=3)
             if kind == "entry":
-                w = ttk.Entry(panel, width=24)
+                w = ttk.Entry(self.font_frame, width=22)
             else:
-                w = ttk.Combobox(panel, width=22, values=kind[1], state="readonly")
+                w = ttk.Combobox(self.font_frame, width=20, values=kind[1], state="readonly")
             w.grid(row=i, column=1, sticky="w", padx=(6, 0))
-            self.fields[(sub, field)] = w
-        ttk.Label(panel, text="改完记得点上方「保存修改」。未填写的字段保持原值。",
-                  foreground="#888888").grid(row=len(rows), column=0, columnspan=2,
-                                             sticky="w", pady=(10, 0))
+            self.font_fields[field] = w
+        # 段落组
+        self.para_frame = ttk.LabelFrame(panel, text="段落", padding=8)
+        self.para_frame.grid(row=0, column=1, sticky="ns")
+        self.para_fields = {}
+        self.para_labels = {}
+        for i, (label, kind, field) in enumerate(_PARA_ROWS):
+            lab = ttk.Label(self.para_frame, text=label + ":")
+            lab.grid(row=i, column=0, sticky="w", pady=3)
+            self.para_labels[field] = lab
+            if kind == "entry":
+                w = ttk.Entry(self.para_frame, width=22)
+            else:
+                w = ttk.Combobox(self.para_frame, width=20, values=kind[1], state="readonly")
+            w.grid(row=i, column=1, sticky="w", padx=(6, 0))
+            self.para_fields[field] = w
         self.section_list.selection_set(0)
         self._on_section_select()
+
+    def _show_overview(self):
+        """弹窗展示当前方案全部类别的关键参数（只读总览）。"""
+        if not getattr(self, "cfg_dict", None):
+            self.cfg_dict = self._load_cfg_dict(self.cfg_path_var.get()) \
+                if self.cfg_path_var.get() else {}
+        lines = []
+        for section, label, kind in _SECTIONS:
+            node = self.cfg_dict
+            try:
+                for part in section.split("."):
+                    node = node[part]
+            except (KeyError, TypeError):
+                node = {}
+            font, para = node.get("font") or {}, node.get("paragraph") or {}
+            parts = []
+            if font.get("chinese_font_name"):
+                parts.append(f"{font['chinese_font_name']}")
+            if font.get("english_font_name"):
+                parts.append(f"/{font['english_font_name']}")
+            if font.get("font_size"):
+                parts.append(f" {font['font_size']}")
+            if font.get("bold"):
+                parts.append(" 加粗")
+            if para.get("alignment"):
+                parts.append(f" {para['alignment']}")
+            if para.get("line_spacingrule") or para.get("line_spacing"):
+                parts.append(f" 行距:{para.get('line_spacingrule', '')}"
+                             f"{para.get('line_spacing', '')}")
+            if para.get("first_line_indent"):
+                parts.append(f" 缩进:{para['first_line_indent']}")
+            lines.append(f"{label}：{' '.join(parts) if parts else '（未设置）'}")
+        win = tk.Toplevel(self.root)
+        win.title("方案总览（只读）")
+        win.geometry("620x520")
+        txt = tk.Text(win, wrap="word", font=("Microsoft YaHei UI", 10), padx=10, pady=8)
+        sb = ttk.Scrollbar(win, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=sb.set)
+        txt.pack(fill="both", expand=True, side="left")
+        sb.pack(side="right", fill="y")
+        txt.insert("1.0", "\n".join(lines))
+        txt.configure(state="disabled")
 
     # ── Tab2：方案文件读写 ────────────────────────────────
     def _load_cfg_dict(self, path: str) -> dict:
@@ -305,9 +384,12 @@ class App:
         sel = self.section_list.curselection()
         if not sel:
             return
-        section = _SECTIONS[sel[0]][0]
+        section, _label, kind = _SECTIONS[sel[0]]
         node = self._cfg_node(section)
-        font, para = node.get("font") or {}, node.get("paragraph") or {}
+        font = node.get("font") or {}
+        # align 类别（figures.image）的对齐/缩进直接在节点上，无 paragraph 包装
+        para = node if kind == "align" else (node.get("paragraph") or {})
+
         def _set_widget(w, val):
             text = str(val) if val is not None else ""
             if isinstance(w, ttk.Combobox):
@@ -316,28 +398,56 @@ class App:
                 w.delete(0, "end")
                 w.insert(0, text)
 
-        for (sub, field), w in self.fields.items():
-            src = font if sub == "font" else para
-            val = src.get(field)
-            if field == "bold":
-                _set_widget(w, "加粗" if val else "不加粗")
+        # 字体组：仅 full 类别显示
+        if kind == "full":
+            self.font_frame.grid()
+        else:
+            self.font_frame.grid_remove()
+        for field, w in self.font_fields.items():
+            if kind != "full":
+                _set_widget(w, "")
+                continue
+            val = font.get(field)
+            if field in _BOOL_LABELS and val is not None:
+                _set_widget(w, _BOOL_LABELS[field][0] if val else _BOOL_LABELS[field][1])
             else:
                 _set_widget(w, val)
+        # 段落组：align 类别只显示 对齐/首行缩进
+        for field, w in self.para_fields.items():
+            lab = self.para_labels[field]
+            if kind == "align" and field not in ("alignment", "first_line_indent"):
+                w.grid_remove()
+                lab.grid_remove()
+                continue
+            w.grid()
+            lab.grid()
+            _set_widget(w, para.get(field))
 
-    def _collect_section(self, section: str) -> None:
-        """把面板字段写回 cfg_dict 对应节（空值不覆盖）。"""
+    def _collect_section(self, section: str, kind: str) -> None:
+        """把面板字段写回 cfg_dict 对应节（空值不覆盖；align 类别只收对齐/缩进）。"""
         node = self._cfg_node(section)
-        font = node.setdefault("font", {})
-        para = node.setdefault("paragraph", {})
-        for (sub, field), w in self.fields.items():
+        if kind == "align":
+            font = None
+            para = node
+        else:
+            font = node.setdefault("font", {})
+            para = node.setdefault("paragraph", {})
+        for field, w in self.font_fields.items():
+            if kind != "full":
+                break
             val = str(w.get()).strip()
             if not val:
                 continue
-            target = font if sub == "font" else para
-            if field == "bold":
-                target[field] = val == "加粗"
+            if field in _BOOL_LABELS:
+                font[field] = val == _BOOL_LABELS[field][0]
             else:
-                target[field] = val
+                font[field] = val
+        for field, w in self.para_fields.items():
+            if kind == "align" and field not in ("alignment", "first_line_indent"):
+                continue
+            val = str(w.get()).strip()
+            if val:
+                para[field] = val
 
     def cfg_open(self, path: str | None = None):
         if not path:
@@ -376,7 +486,8 @@ class App:
             return
         sel = self.section_list.curselection()
         if sel:
-            self._collect_section(_SECTIONS[sel[0]][0])
+            section, _label, kind = _SECTIONS[sel[0]]
+            self._collect_section(section, kind)
         with open(path, "w", encoding="utf-8") as f:
             yaml.safe_dump(self.cfg_dict, f, allow_unicode=True, sort_keys=False, width=100)
         # 状态栏反馈即可，避免频繁弹窗打断编辑
@@ -437,6 +548,16 @@ class App:
                 return fallback, f"填写的方案不存在，已自动改用内置方案: {fallback}"
             return fallback, "未填写方案，已自动使用内置预设"
         return path, ""
+
+    def open_preset_editor(self):
+        """载入当前方案（未选则用内置预设）并切换到「格式方案」页，弹总览。"""
+        path = self.yaml_var.get().strip() or _default_preset()
+        if not path or not Path(path).exists():
+            messagebox.showwarning("提示", "未找到格式方案文件")
+            return
+        self.cfg_open(path)
+        self._select_tab(1)
+        self._show_overview()
 
     def _on_preset_selected(self, _event=None):
         name = self.preset_cb.get()

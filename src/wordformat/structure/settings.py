@@ -15,6 +15,7 @@ from wordformat.rules import (  # noqa: F401 — 触发 @register 装饰器注�
     CaptionFigure,
     CaptionTable,
     FigureImage,
+    TableTextNode,
     HeadingLevel1Node,
     HeadingLevel2Node,
     HeadingLevel3Node,
@@ -40,7 +41,7 @@ CATEGORY_TO_CLASS.setdefault("heading_fulu", BodyText)  # 附录标题
 # 必须注册否则 create_node 因未知类别返回 None 丢弃节点，导致段落与树节点错位。
 # 两者均在 VOIDNODELIST 中，识别后仅预览展示、不参与格式化。
 CATEGORY_TO_CLASS.setdefault("equation_para", BodyText)  # 公式段落
-CATEGORY_TO_CLASS.setdefault("table_text", BodyText)  # 表格内段落
+CATEGORY_TO_CLASS["table_text"] = TableTextNode  # 表格内文字（rules 注册，排版用 tables.text 配置）
 CATEGORY_TO_CLASS.setdefault("toc_line", BodyText)  # 目录行
 
 LEVEL_MAP = _level_registry

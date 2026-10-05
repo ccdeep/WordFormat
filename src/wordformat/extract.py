@@ -33,6 +33,7 @@ _SECTIONS = [
     ("references.title", ["参考文献标题"], ["09-"]),
     ("references.entry", ["参考文献正文"], ["27-"]),
     ("acknowledgements.title", ["致谢标题", "致谢"], []),
+    ("tables.text", ["表格内文字"], ["07-1"]),
     ("figures.caption", ["图题", "图注", "题注"], ["07-"]),
     ("tables.caption", ["表题", "表注"], []),
     ("math.block", ["公式"], ["08-"]),
