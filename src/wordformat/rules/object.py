@@ -4,9 +4,30 @@ from pathlib import Path
 
 from docx.shared import Inches
 
+from wordformat.config.dotdict import BASE_FORMAT, deep_merge
+from wordformat.rules.body import BodyText
 from wordformat.rules.node import FormatNode
 from wordformat.structure.registry import register
 from wordformat.style.comments import format_comment
+
+
+@register("document_title")
+class DocumentTitleNode(BodyText):
+    """文档标题节点（封面/首页大标题，模板 11-：华文细黑二号居中）"""
+
+    NODE_TYPE = "document.title"
+    NODE_LABEL = "文档标题"
+    DEFAULTS = deep_merge(
+        BASE_FORMAT,
+        {
+            "paragraph": {"alignment": "居中对齐", "space_after": "1行"},
+            "font": {
+                "chinese_font_name": "华文细黑",
+                "english_font_name": "华文细黑",
+                "font_size": "二号",
+            },
+        },
+    )
 
 
 @register("figure_image")
@@ -19,44 +40,70 @@ class FigureImage(FormatNode):
 
     NODE_TYPE = "figures.image"
     NODE_LABEL = "图片段落"
-    DEFAULTS = {"alignment": "居中对齐", "first_line_indent": "0字符"}
+    DEFAULTS = {"alignment": "居中对齐", "first_line_indent": "0字符",
+                "line_spacingrule": "单倍行距", "line_spacing": "1倍"}
     DEFAULT_RULES = {}
 
     def _base(self, doc, p: bool, r: bool):
-        """仅检查对齐和首行缩进。"""
-        from wordformat.style.defs import Alignment, FirstLineIndent
+        """对齐/行距/首行缩进。apply 模式下直接设置；
+        行距显式设单倍，防止继承固定值行距把内联图片裁剪得显示不全。"""
+        from wordformat.style.defs import (
+            Alignment,
+            FirstLineIndent,
+            LineSpacing,
+            LineSpacingRule,
+        )
         from wordformat.style.diff import _format_para_value
 
         self._try_insert_image()
 
         cfg = self.pydantic_config
         expected_align = Alignment(str(cfg.alignment or "居中对齐"))
-        actual_align = expected_align.get_from_paragraph(self.paragraph)
-        if expected_align != actual_align:
-            self.add_comment(
-                doc=doc,
-                runs=self.paragraph.runs,
-                text=format_comment(
-                    self.NODE_LABEL,
-                    "对齐错误",
-                    _format_para_value("alignment", actual_align),
-                    _format_para_value("alignment", expected_align),
-                ),
-            )
+        if not p:
+            self.paragraph.alignment = expected_align.rel_value
+        else:
+            actual_align = expected_align.get_from_paragraph(self.paragraph)
+            if expected_align != actual_align:
+                self.add_comment(
+                    doc=doc,
+                    runs=self.paragraph.runs,
+                    text=format_comment(
+                        self.NODE_LABEL,
+                        "对齐错误",
+                        _format_para_value("alignment", actual_align),
+                        _format_para_value("alignment", expected_align),
+                    ),
+                )
+
+        # 行距：显式设置，避免继承固定值行距裁剪图片
+        expected_rule = LineSpacingRule(str(cfg.line_spacingrule or "单倍行距"))
+        expected_ls = LineSpacing(str(cfg.line_spacing or "1倍"))
+        if not p:
+            pf = self.paragraph.paragraph_format
+            pf.line_spacing_rule = expected_rule.rel_value
+            if expected_ls.rel_unit == "pt":
+                from docx.shared import Pt
+                pf.line_spacing = Pt(expected_ls.rel_value)
+            else:
+                pf.line_spacing = expected_ls.rel_value
 
         expected_indent = FirstLineIndent(str(cfg.first_line_indent or "0字符"))
-        actual_indent = expected_indent.get_from_paragraph(self.paragraph)
-        if expected_indent != actual_indent:
-            self.add_comment(
-                doc=doc,
-                runs=self.paragraph.runs,
-                text=format_comment(
-                    self.NODE_LABEL,
-                    "首行缩进错误",
-                    _format_para_value("first_line_indent", actual_indent),
-                    _format_para_value("first_line_indent", expected_indent),
-                ),
-            )
+        if not p:
+            from wordformat.style.writer import SetFirstLineIndent
+            SetFirstLineIndent.set_char(self.paragraph, expected_indent.rel_value)
+        else:
+            actual_indent = expected_indent.get_from_paragraph(self.paragraph)
+            if expected_indent != actual_indent:
+                self.add_comment(
+                    doc=doc,
+                    runs=self.paragraph.runs,
+                    text=format_comment(
+                        self.NODE_LABEL,
+                        "首行缩进错误",
+                        _format_para_value("first_line_indent", actual_indent),
+                        _format_para_value("first_line_indent", expected_indent),
+                    ),
+                )
 
     def _try_insert_image(self) -> None:
         """如果段落为空且 value 中有图片路径，尝试插入图片。"""

@@ -29,6 +29,27 @@ numbering:
   # wordformat 的自动编号重建逻辑是否兼容 numPr 模板 → 待验证（缺口清单 #5）
   enabled: false
 
+document:
+  title:               # 模板 11-论文封面中文标题：华文细黑 二号 居中
+    paragraph:
+      alignment: '居中对齐'
+      space_before: '0行'
+      space_after: '1行'
+      line_spacingrule: '单倍行距'
+      line_spacing: '1倍'
+      left_indent: '0字符'
+      right_indent: '0字符'
+      first_line_indent: '0字符'
+      builtin_style_name: 正文
+    font:
+      chinese_font_name: 华文细黑
+      english_font_name: 华文细黑
+      font_size: 二号
+      font_color: 黑色
+      bold: false
+      italic: false
+      underline: false
+
 abstract:
   chinese:
     title:            # 模板 18-：黑体 小二(18pt ★待核，常见为三号) 加粗 居中 段前1行段后1行
@@ -263,6 +284,8 @@ figures:
   image:
     alignment: '居中对齐'
     first_line_indent: '0字符'
+    line_spacingrule: '单倍行距'
+    line_spacing: '1倍'
 
 tables:
   caption:            # 模板 07-：同图题

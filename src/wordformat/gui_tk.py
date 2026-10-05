@@ -74,6 +74,7 @@ CN_LIST_ORDERED = _CATEGORY_ORDER_CN
 # ── 可配置节（Tab2 编辑面板）────────────────────────────────
 # kind: full = 字体+段落全量参数；align = 仅对齐/缩进（图片段落）
 _SECTIONS = [
+    ("document.title", "文章标题", "full"),
     ("body.text", "正文", "full"),
     ("headings.level_1", "一级标题", "full"),
     ("headings.level_2", "二级标题", "full"),
@@ -88,8 +89,6 @@ _SECTIONS = [
     ("references.entry", "参考文献条目", "full"),
     ("acknowledgements.title", "致谢标题", "full"),
     ("acknowledgements.content", "致谢正文", "full"),
-    ("abstract.chinese.title_content", "中文摘要标题正文", "full"),
-    ("abstract.english.title_content", "英文摘要标题正文", "full"),
     ("figures.caption", "图注", "full"),
     ("tables.caption", "表注", "full"),
     ("tables.text", "表格内文字", "full"),
@@ -97,7 +96,7 @@ _SECTIONS = [
     ("figures.image", "图片段落", "align"),
 ]
 # 不通过本页排版的类别（识别预览里可能出现，特此说明）
-_NON_LAYOUT_CATS = "文档标题、目录标题、目录行、附录标题、页脚、其他（封面/声明）"
+_NON_LAYOUT_CATS = "目录标题、目录行、附录标题、页脚、其他（封面/声明）"
 _SIZE_CHOICES = ["初号", "小初", "一号", "小一", "二号", "小二", "三号", "小三",
                  "四号", "小四", "五号", "小五", "六号", "七号"]
 _ALIGN_CHOICES = ["两端对齐", "居中对齐", "左对齐", "右对齐"]
@@ -105,8 +104,9 @@ _RULE_CHOICES = ["单倍行距", "1.5倍行距", "2倍行距", "多倍行距", "
 _BOLD_CHOICES = ["加粗", "不加粗"]
 _ITALIC_CHOICES = ["斜体", "不斜体"]
 _UNDERLINE_CHOICES = ["下划线", "无下划线"]
+_CN_FONT_CHOICES = ["宋体", "仿宋_GB2312", "楷体", "黑体", "华文细黑", "微软雅黑"]
 _FONT_ROWS = [
-    ("中文字体", "entry", "chinese_font_name"),
+    ("中文字体", ("combobox_edit", _CN_FONT_CHOICES), "chinese_font_name"),
     ("西文字体", "entry", "english_font_name"),
     ("字号", ("combobox", _SIZE_CHOICES), "font_size"),
     ("加粗", ("combobox", _BOLD_CHOICES), "bold"),
@@ -143,6 +143,24 @@ def _builtin_presets() -> dict[str, Path]:
     pkg_dir = Path(__file__).resolve().parent / "data" / "presets"
     if pkg_dir.is_dir():
         for f in sorted(pkg_dir.glob("*.yaml")):
+            presets[f.stem] = f
+    return presets
+
+
+def _user_presets_dir() -> Path:
+    """用户方案固定文件夹：随软件（开发态=仓库根/presets，打包态=exe 同级/presets）。"""
+    from wordformat.settings import BASE_DIR
+    d = Path(BASE_DIR) / "presets"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _all_presets() -> dict[str, Path]:
+    """内置预设 + 用户方案文件夹（用户同名覆盖内置）。"""
+    presets = dict(_builtin_presets())
+    user_dir = _user_presets_dir()
+    if user_dir.is_dir():
+        for f in sorted(user_dir.glob("*.yaml")):
             presets[f.stem] = f
     return presets
 
@@ -203,10 +221,11 @@ class App:
             row=1, column=4, padx=(6, 0), pady=(4, 0))
         ttk.Label(top, text="内置方案:").grid(row=2, column=0, sticky="w", pady=(4, 0))
         self.preset_cb = ttk.Combobox(top, width=54, state="readonly")
-        self.preset_cb["values"] = list(_builtin_presets()) or ["（未找到内置方案）"]
-        if _builtin_presets():
-            self.preset_cb.set("北理工毕设报告" if "北理工毕设报告" in _builtin_presets()
-                               else next(iter(_builtin_presets())))
+        all_presets = _all_presets()
+        self.preset_cb["values"] = list(all_presets) or ["（未找到内置方案）"]
+        if all_presets:
+            self.preset_cb.set("北理工毕设报告" if "北理工毕设报告" in all_presets
+                               else next(iter(all_presets)))
         self.preset_cb.grid(row=2, column=1, columnspan=2, sticky="w", padx=4, pady=(4, 0))
         ttk.Label(top, text="选中即载入，也可在「格式方案」页编辑",
                   foreground="#888888").grid(row=2, column=3, columnspan=2, sticky="w", pady=(4, 0))
@@ -303,6 +322,8 @@ class App:
             ttk.Label(self.font_frame, text=label + ":").grid(row=i, column=0, sticky="w", pady=3)
             if kind == "entry":
                 w = ttk.Entry(self.font_frame, width=22)
+            elif kind == "combobox_edit":
+                w = ttk.Combobox(self.font_frame, width=20, values=kind[1])
             else:
                 w = ttk.Combobox(self.font_frame, width=20, values=kind[1], state="readonly")
             w.grid(row=i, column=1, sticky="w", padx=(6, 0))
@@ -412,10 +433,12 @@ class App:
                 _set_widget(w, _BOOL_LABELS[field][0] if val else _BOOL_LABELS[field][1])
             else:
                 _set_widget(w, val)
-        # 段落组：align 类别只显示 对齐/首行缩进
+        # 段落组：align 类别（图片段落）显示 对齐/行距/首行缩进
+        # （图片必须避开固定值行距，否则内联图片会被裁剪得显示不全）
         for field, w in self.para_fields.items():
             lab = self.para_labels[field]
-            if kind == "align" and field not in ("alignment", "first_line_indent"):
+            if kind == "align" and field not in ("alignment", "line_spacingrule",
+                                                 "line_spacing", "first_line_indent"):
                 w.grid_remove()
                 lab.grid_remove()
                 continue
@@ -438,12 +461,15 @@ class App:
             val = str(w.get()).strip()
             if not val:
                 continue
+            if not val:
+                continue
             if field in _BOOL_LABELS:
                 font[field] = val == _BOOL_LABELS[field][0]
             else:
                 font[field] = val
         for field, w in self.para_fields.items():
-            if kind == "align" and field not in ("alignment", "first_line_indent"):
+            if kind == "align" and field not in ("alignment", "line_spacingrule",
+                                                 "line_spacing", "first_line_indent"):
                 continue
             val = str(w.get()).strip()
             if val:
@@ -470,7 +496,8 @@ class App:
     def cfg_save_as(self):
         path = filedialog.asksaveasfilename(
             title="另存格式方案", defaultextension=".yaml",
-            initialfile="我的方案.yaml", filetypes=[("YAML", "*.yaml *.yml")])
+            initialdir=str(_user_presets_dir()), initialfile="我的方案.yaml",
+            filetypes=[("YAML", "*.yaml *.yml")])
         if not path:
             return
         self.cfg_path_var.set(path)
@@ -561,7 +588,7 @@ class App:
 
     def _on_preset_selected(self, _event=None):
         name = self.preset_cb.get()
-        presets = _builtin_presets()
+        presets = _all_presets()
         if name in presets:
             path = str(presets[name])
             self.yaml_var.set(path)
@@ -649,8 +676,9 @@ class App:
             self.docx_var.set(path)
 
     def browse_yaml(self):
-        path = filedialog.askopenfilename(title="选择格式方案 YAML",
-                                          filetypes=[("YAML", "*.yaml *.yml")])
+        path = filedialog.askopenfilename(
+            title="选择格式方案 YAML", initialdir=str(_user_presets_dir()),
+            filetypes=[("YAML", "*.yaml *.yml")])
         if path:
             self.yaml_var.set(path)
             self.cfg_path_var.set(path)
