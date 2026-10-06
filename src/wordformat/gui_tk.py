@@ -68,8 +68,12 @@ _CATEGORY_ORDER = [
     "acknowledgements_title", "acknowledgements_content",
     "footer", "other",
 ]
-_CATEGORY_ORDER_CN = [CAT_CN.get(c, c) for c in _CATEGORY_ORDER if c in CAT_CN]
-_CATEGORY_ORDER_CN += [CAT_CN[c] for c in CATEGORIES if c not in _CATEGORY_ORDER]
+# UI 下拉（筛选/改判）不提供的类别：模型合并段的产物，无独立排版与改判意义
+_HIDDEN_IN_UI = {"abstract_chinese_title_content", "abstract_english_title_content"}
+_CATEGORY_ORDER_CN = [CAT_CN.get(c, c) for c in _CATEGORY_ORDER
+                      if c in CAT_CN and c not in _HIDDEN_IN_UI]
+_CATEGORY_ORDER_CN += [CAT_CN[c] for c in CATEGORIES
+                       if c not in _CATEGORY_ORDER and c not in _HIDDEN_IN_UI]
 CN_LIST_ORDERED = _CATEGORY_ORDER_CN
 
 # ── 可配置节（Tab2 编辑面板）────────────────────────────────
@@ -269,10 +273,12 @@ class App:
                                       values=["全部类别"] + CN_LIST_ORDERED,
                                       textvariable=self.filter_var)
         self.filter_cb.pack(side="left")
-        self.filter_cb.bind("<<ComboboxSelected>>", lambda _e: self._refresh_tree())
+        self.filter_cb.bind("<<ComboboxSelected>>",
+                            lambda _e: (self._refresh_tree(), self._update_scope_ui()))
         self.scope_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bar, text="只排版筛选出的类别",
-                        variable=self.scope_var).pack(side="left", padx=(10, 0))
+        self.scope_cb = ttk.Checkbutton(bar, text="只排版筛选出的类别",
+                                        variable=self.scope_var)
+        self.scope_cb.pack(side="left", padx=(10, 0))
 
         pane = ttk.Panedwindow(tab, orient="horizontal")
         pane.pack(fill="both", expand=True)
@@ -771,6 +777,19 @@ class App:
         n_review = sum(1 for d in data if d.get("needs_review"))
         self._set_busy(False, f"识别完成：{len(data)} 段，其中 {n_review} 段建议人工复核（黄色行）。"
                               "单击行可在右侧原文定位，双击「类别」单元格可改判。")
+
+    def _update_scope_ui(self):
+        """勾选框随筛选联动：选具体类别=自动勾选（标签写明后果）；
+        全部类别=禁用（全量排版，勾选无意义）。"""
+        f = self.filter_var.get()
+        if f == "全部类别":
+            self.scope_var.set(False)
+            self.scope_cb.configure(state="disabled",
+                                    text="只排版筛选出的类别（先选择具体类别）")
+        else:
+            self.scope_var.set(True)
+            self.scope_cb.configure(state="normal",
+                                    text=f"只排版「{f}」，其余段落不动")
 
     def _refresh_tree(self):
         """按类别筛选重建列表（iid 恒为段落原始序号，改判/套用不受筛选影响）。"""
