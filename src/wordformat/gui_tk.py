@@ -263,6 +263,16 @@ class App:
         self.save_btn = ttk.Button(bar, text="💾 保存结构 JSON", command=self.save_json,
                                    state="disabled")
         self.save_btn.pack(side="left", padx=8)
+        ttk.Label(bar, text="类别筛选:").pack(side="left", padx=(14, 2))
+        self.filter_var = tk.StringVar(value="全部类别")
+        self.filter_cb = ttk.Combobox(bar, width=13, state="readonly",
+                                      values=["全部类别"] + CN_LIST_ORDERED,
+                                      textvariable=self.filter_var)
+        self.filter_cb.pack(side="left")
+        self.filter_cb.bind("<<ComboboxSelected>>", lambda _e: self._refresh_tree())
+        self.scope_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(bar, text="只排版筛选出的类别",
+                        variable=self.scope_var).pack(side="left", padx=(10, 0))
 
         pane = ttk.Panedwindow(tab, orient="horizontal")
         pane.pack(fill="both", expand=True)
@@ -756,9 +766,20 @@ class App:
 
     def _populate(self, data: list[dict]):
         self.data = data
+        self._refresh_tree()
+        self._fill_original_text(data)
+        n_review = sum(1 for d in data if d.get("needs_review"))
+        self._set_busy(False, f"识别完成：{len(data)} 段，其中 {n_review} 段建议人工复核（黄色行）。"
+                              "单击行可在右侧原文定位，双击「类别」单元格可改判。")
+
+    def _refresh_tree(self):
+        """按类别筛选重建列表（iid 恒为段落原始序号，改判/套用不受筛选影响）。"""
+        f = self.filter_var.get()
         self.tree.delete(*self.tree.get_children())
-        for i, item in enumerate(data):
+        for i, item in enumerate(self.data):
             cat = item["category"]
+            if f != "全部类别" and _cat_cn(cat) != f:
+                continue
             tags = []
             if item.get("needs_review"):
                 tags.append("review")
@@ -769,10 +790,6 @@ class App:
                 "是" if item.get("needs_review") else "",
                 (item.get("paragraph") or "")[:80],
             ), tags=tags)
-        self._fill_original_text(data)
-        n_review = sum(1 for d in data if d.get("needs_review"))
-        self._set_busy(False, f"识别完成：{len(data)} 段，其中 {n_review} 段建议人工复核（黄色行）。"
-                              "单击行可在右侧原文定位，双击「类别」单元格可改判。")
 
     def _fill_original_text(self, data: list[dict]):
         """右侧原文窗：一段一行（空段/图片段/公式段显示灰色占位）。"""
@@ -890,19 +907,29 @@ class App:
         if note:
             self.yaml_var.set(yaml_path)
             self.status_var.set(note)
+        # 套用范围：勾选"只排版筛选出的类别"时，仅当前筛选可见的类别参与排版
+        only_categories = None
+        if self.scope_var.get():
+            only_categories = {self.data[int(iid)]["category"]
+                               for iid in self.tree.get_children()}
+            if not only_categories:
+                messagebox.showwarning("提示", "筛选结果为空，无法套用")
+                return
         json_path = Path(tempfile.gettempdir()) / f"wordformat_gui_{os.getpid()}.json"
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(self.data, f, ensure_ascii=False, indent=2)
         self._start_task("apply", "套用格式中…（样式修正/公式排版/保存，进度见状态栏）",
                          self._apply_worker,
                          (str(json_path), self.docx_path, yaml_path,
-                          self.comments_var.get()))
+                          self.comments_var.get(), only_categories))
 
-    def _apply_worker(self, json_path: str, docx: str, yaml_path: str, comments: bool):
+    def _apply_worker(self, json_path: str, docx: str, yaml_path: str,
+                      comments: bool, only_categories=None):
         return auto_format_thesis_document(
             jsonpath=json_path, docxpath=docx, configpath=yaml_path,
             savepath=str(Path(docx).parent / "格式化输出"),
             check=False, skip_comments=not comments,
+            only_categories=only_categories,
         )
 
     def _apply_failed(self, msg: str):
@@ -911,6 +938,12 @@ class App:
 
     def _apply_done(self, out: str):
         self._set_busy(False, f"已输出: {out}")
+        # 限定范围的套用：当前文档自动切换为输出文件，可换筛选类别继续套用（分段累积）
+        if self.scope_var.get() and self.filter_var.get() != "全部类别":
+            self.docx_var.set(out)
+            self.docx_path = out
+            self.status_var.set(f"已输出并切换当前文档: {out}——可换一个筛选类别继续套用")
+            return
         if messagebox.askyesno("完成", f"已生成:\n{out}\n\n是否立即打开?"):
             os.startfile(out)
 

@@ -38,6 +38,7 @@ def auto_format_thesis_document(
     savepath: str = "output/",
     check=True,
     skip_comments: bool = False,
+    only_categories: Optional[set] = None,
 ):
     """自动对学位论文文档进行格式校验与批注。
 
@@ -59,6 +60,8 @@ def auto_format_thesis_document(
         savepath (str): 处理完成后带批注的文档保存路径。
         configpath (Optional[str]): 格式规范配置文件（YAML）路径，支持继承与合并。
                                  为 None 时使用内置默认配置。
+        only_categories (Optional[set]): 限定套用范围的类别集合（如 {'caption_table'}）；
+                                 非 None 时范围外的段落与样式定义一概不动。
 
     Side Effects:
         - 读取 jsonpath、docxpath 和 configpath 指定的文件；
@@ -82,6 +85,7 @@ def auto_format_thesis_document(
         save_dir=savepath,
         check=check,
     )
+    ctx.only_categories = only_categories
     # 2. 组装流水线
     pipeline: list[PipelineStage] = [
         LoadConfigStage(),
@@ -91,11 +95,16 @@ def auto_format_thesis_document(
         TreeNormalizationStage(),
         EquationNumberingStage(),
         StyleDefinitionFixStage(),
-        FormattingExecutionStage(skip_comments=skip_comments),
+        FormattingExecutionStage(),
         SummaryGenerationStage(),
         PostProcessingStage(),
         DocumentSavingStage(),
     ]
+    # 限定套用范围时：样式定义修正与全文级后处理（编号/超链接）都跳过，
+    # 保证范围外的段落与样式定义一个字节都不动
+    if only_categories:
+        pipeline = [st for st in pipeline if not isinstance(
+            st, (StyleDefinitionFixStage, PostProcessingStage))]
     for stage in pipeline:
         ctx = stage.process(ctx)
     return ctx.output_path
