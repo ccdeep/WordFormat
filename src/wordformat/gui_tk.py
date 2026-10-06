@@ -268,13 +268,21 @@ class App:
                                    state="disabled")
         self.save_btn.pack(side="left", padx=8)
         ttk.Label(bar, text="类别筛选:").pack(side="left", padx=(14, 2))
-        self.filter_var = tk.StringVar(value="全部类别")
-        self.filter_cb = ttk.Combobox(bar, width=13, state="readonly",
-                                      values=["全部类别"] + CN_LIST_ORDERED,
-                                      textvariable=self.filter_var)
-        self.filter_cb.pack(side="left")
-        self.filter_cb.bind("<<ComboboxSelected>>",
-                            lambda _e: (self._refresh_tree(), self._update_scope_ui()))
+        # 多选打勾：Menubutton 弹出可勾选菜单，可一次勾选多个类别
+        self._filter_sel = {CN_TO_CATEGORY[cn]: tk.BooleanVar(value=False)
+                            for cn in CN_LIST_ORDERED}
+        self.filter_mb = ttk.Menubutton(bar, text="类别筛选：全部", width=26)
+        filter_menu = tk.Menu(self.filter_mb, tearoff=0,
+                              font=("Microsoft YaHei UI", 9))
+        for cn in CN_LIST_ORDERED:
+            filter_menu.add_checkbutton(label=cn,
+                                        variable=self._filter_sel[CN_TO_CATEGORY[cn]],
+                                        command=self._on_filter_change)
+        filter_menu.add_separator()
+        filter_menu.add_command(label="全选", command=lambda: self._set_all_filter(True))
+        filter_menu.add_command(label="清空筛选", command=lambda: self._set_all_filter(False))
+        self.filter_mb.configure(menu=filter_menu)
+        self.filter_mb.pack(side="left")
         self.scope_var = tk.BooleanVar(value=False)
         self.scope_cb = ttk.Checkbutton(bar, text="只排版筛选出的类别",
                                         variable=self.scope_var)
@@ -779,25 +787,48 @@ class App:
                               "单击行可在右侧原文定位，双击「类别」单元格可改判。")
 
     def _update_scope_ui(self):
-        """勾选框随筛选联动：选具体类别=自动勾选（标签写明后果）；
-        全部类别=禁用（全量排版，勾选无意义）。"""
-        f = self.filter_var.get()
-        if f == "全部类别":
+        """范围勾选随筛选联动：勾了具体类别=自动勾选（标签写明后果）；
+        未勾任何类别=禁用（全量排版，勾选无意义）。"""
+        sel = self._selected_categories()
+        if not sel:
             self.scope_var.set(False)
             self.scope_cb.configure(state="disabled",
-                                    text="只排版筛选出的类别（先选择具体类别）")
-        else:
-            self.scope_var.set(True)
-            self.scope_cb.configure(state="normal",
-                                    text=f"只排版「{f}」，其余段落不动")
+                                    text="只排版筛选出的类别（先在类别筛选里打勾）")
+            return
+        self.scope_var.set(True)
+        self.scope_cb.configure(state="normal",
+                                text="只排版筛选出的类别，其余段落不动")
+
+    def _selected_categories(self) -> set:
+        """当前勾选的类别集合；空集合 = 全部。"""
+        return {cat for cat, var in self._filter_sel.items() if var.get()}
+
+    def _filter_summary(self) -> str:
+        sel = self._selected_categories()
+        if not sel:
+            return "类别筛选：全部"
+        if len(sel) == 1:
+            return f"类别筛选：{_cat_cn(next(iter(sel)))}"
+        return f"类别筛选：已选 {len(sel)} 类"
+
+    def _on_filter_change(self):
+        self.filter_mb.configure(text=self._filter_summary())
+        self._update_scope_ui()
+        self._refresh_tree()
+
+    def _set_all_filter(self, on: bool):
+        for var in self._filter_sel.values():
+            var.set(on)
+        self._on_filter_change()
 
     def _refresh_tree(self):
-        """按类别筛选重建列表（iid 恒为段落原始序号，改判/套用不受筛选影响）。"""
-        f = self.filter_var.get()
+        """按类别筛选重建列表（iid 恒为段落原始序号，改判/套用不受筛选影响）。
+        多选打勾：勾了类别只显示那些类别；一个都没勾 = 全部显示。"""
+        sel = self._selected_categories()
         self.tree.delete(*self.tree.get_children())
         for i, item in enumerate(self.data):
             cat = item["category"]
-            if f != "全部类别" and _cat_cn(cat) != f:
+            if sel and cat not in sel:
                 continue
             tags = []
             if item.get("needs_review"):
@@ -926,13 +957,12 @@ class App:
         if note:
             self.yaml_var.set(yaml_path)
             self.status_var.set(note)
-        # 套用范围：勾选"只排版筛选出的类别"时，仅当前筛选可见的类别参与排版
+        # 套用范围：勾选"只排版筛选出的类别"时，仅勾选的类别参与排版
         only_categories = None
         if self.scope_var.get():
-            only_categories = {self.data[int(iid)]["category"]
-                               for iid in self.tree.get_children()}
+            only_categories = self._selected_categories()
             if not only_categories:
-                messagebox.showwarning("提示", "筛选结果为空，无法套用")
+                messagebox.showwarning("提示", "未勾选任何筛选类别，无法限定套用")
                 return
         json_path = Path(tempfile.gettempdir()) / f"wordformat_gui_{os.getpid()}.json"
         with open(json_path, "w", encoding="utf-8") as f:
@@ -957,8 +987,8 @@ class App:
 
     def _apply_done(self, out: str):
         self._set_busy(False, f"已输出: {out}")
-        # 限定范围的套用：当前文档自动切换为输出文件，可换筛选类别继续套用（分段累积）
-        if self.scope_var.get() and self.filter_var.get() != "全部类别":
+        # 限定范围的套用：当前文档自动切换为输出文件，可改勾选继续套用（分段累积）
+        if self.scope_var.get() and self._selected_categories():
             self.docx_var.set(out)
             self.docx_path = out
             self.status_var.set(f"已输出并切换当前文档: {out}——可换一个筛选类别继续套用")
