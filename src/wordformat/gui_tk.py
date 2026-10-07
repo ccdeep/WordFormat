@@ -16,12 +16,14 @@ import queue
 import shutil
 import tempfile
 import threading
+import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
 
 import yaml
 
+from PIL import Image, ImageTk
 from docx import Document
 from docx.oxml.ns import qn
 
@@ -30,7 +32,8 @@ from wordformat.pipeline.orchestrate import auto_format_thesis_document
 from wordformat.settings import VOIDNODELIST
 from wordformat.structure.paragraph_walker import iter_document_paragraphs
 from wordformat.utils.omml_text import omml_to_text
-from wordformat.utils.word_view import open_in_word
+from wordformat.utils.pdf_render import PdfPages
+from wordformat.utils.word_view import export_pdf, open_in_word
 
 # ── 类别全集（模型标签 + 结构规则标签）─────────────────────
 MODEL_LABELS = [
@@ -227,6 +230,13 @@ class App:
         self._para_marks: list[str] = []      # 每段在原文 Text 里的起始索引
         self._tree_group_cache: dict[str, list[int]] = {}  # 树行 iid → 段落成员（表格折叠用）
         self._nav_syncing = False             # 目录↔列表联动时防事件互调死循环
+        self._pdfpages: PdfPages | None = None  # 页面版式预览（Word 导出的 PDF）
+        self._pdf_geo: tuple[int, int] | None = None  # (渲染宽px, 页高px)
+        self._pdf_layout_w = 0
+        self._page_imgs: list = []            # 页面渲染缓存（None=未渲染, False=失败）
+        self._page_items: list = []           # canvas 图像条目 id
+        self._pdf_file: str | None = None     # 当前预览的临时 pdf 路径
+        self._pdf_last_page = 0
         self._busy = False
         self._progress_queue: queue.Queue | None = None
         self._progress_sink_id = None
@@ -343,12 +353,29 @@ class App:
 
         right = ttk.Frame(pane)
         pane.add(right, weight=2)
-        ttk.Label(right, text="原文（点击左侧列表行可定位高亮）",
-                  foreground="#666666").pack(anchor="w")
-        self.原文 = tk.Text(right, wrap="word", state="disabled",
+        self.preview_nb = ttk.Notebook(right)
+        self.preview_nb.pack(fill="both", expand=True)
+        # 页面版式（Word 导出 PDF 逐页渲染，所见即 Word 分页排版）
+        pagef = ttk.Frame(self.preview_nb)
+        self.preview_nb.add(pagef, text=" 页面版式 ")
+        self.pdf_canvas = tk.Canvas(pagef, bg="#525659", highlightthickness=0,
+                                    yscrollincrement=30)
+        self._pdf_sb = ttk.Scrollbar(pagef, orient="vertical",
+                                     command=self.pdf_canvas.yview)
+        self.pdf_canvas.configure(yscrollcommand=self._on_pdf_yscroll)
+        self.pdf_canvas.pack(fill="both", expand=True, side="left")
+        self._pdf_sb.pack(side="right", fill="y")
+        self.pdf_canvas.bind("<Configure>", self._on_pdf_resize)
+        self.pdf_canvas.create_text(20, 24, anchor="nw", fill="#dddddd",
+                                    font=("Microsoft YaHei UI", 10),
+                                    text="识别完成后自动生成 Word 版式预览…")
+        # 文本（富渲染：图片/公式/表格结构）
+        textf = ttk.Frame(self.preview_nb)
+        self.preview_nb.add(textf, text=" 文本 ")
+        self.原文 = tk.Text(textf, wrap="word", state="disabled",
                             font=("Microsoft YaHei UI", 10), padx=8, pady=6,
                             cursor="arrow")
-        zsb = ttk.Scrollbar(right, orient="vertical", command=self.原文.yview)
+        zsb = ttk.Scrollbar(textf, orient="vertical", command=self.原文.yview)
         self.原文.configure(yscrollcommand=zsb.set)
         self.原文.pack(fill="both", expand=True, side="left")
         zsb.pack(side="right", fill="y")
@@ -372,7 +399,7 @@ class App:
         self.nav_tree.bind("<<TreeviewSelect>>", self._on_nav_select)
 
         # 滚轮提速：默认每档 1 行太慢，统一改为 3 行（Word 手感）
-        for w in (self.tree, self.原文, self.nav_tree):
+        for w in (self.tree, self.原文, self.nav_tree, self.pdf_canvas):
             def _on_wheel(event, _w=w, _lines=3):
                 _w.yview_scroll(-_lines if event.delta > 0 else _lines, "units")
                 return "break"  # 拦下默认的 1 行滚动，避免叠加
@@ -798,6 +825,7 @@ class App:
             return
         self.docx_path = docx
         self._source_docx = docx
+        self._close_pdf_preview()
         self._start_task("detect", "识别中…（模型加载与推理，进度见状态栏）",
                          self._detect_worker, (docx,))
 
@@ -847,6 +875,144 @@ class App:
         n_review = sum(1 for d in data if d.get("needs_review"))
         self._set_busy(False, f"识别完成：{len(data)} 段，其中 {n_review} 段建议人工复核（黄色行）。"
                               "单击行可在右侧原文定位，双击「类别」单元格可改判。")
+        # 页面版式预览：Word 导出 PDF 较慢，放后台任务，完成前先用文本页
+        self._start_task("pdf", "正在生成 Word 版式预览…",
+                         self._pdf_worker, (self._source_docx,),
+                         done=self._pdf_done, fail=self._pdf_fail)
+
+    # ── 页面版式预览（Word 导出 PDF 渲染）─────────────────
+    def _pdf_worker(self, docx: str) -> str:
+        out_dir = Path(tempfile.gettempdir()) / "WordFormatPreview"
+        out_dir.mkdir(exist_ok=True)
+        out = out_dir / f"{Path(docx).stem}_{int(time.time())}.pdf"
+        export_pdf(docx, str(out))
+        return str(out)
+
+    def _pdf_done(self, pdf_path: str):
+        self._stop_progress()
+        try:
+            pages = PdfPages(pdf_path)
+        except Exception as e:
+            self._set_busy(False, f"页面版式预览打开失败：{e}（文本预览不受影响）")
+            return
+        old_pages, old_file = self._pdfpages, self._pdf_file
+        self._pdfpages = pages
+        self._pdf_file = pdf_path
+        self._pdf_last_page = 0
+        if old_pages is not None:
+            old_pages.close()
+        if old_file and old_file != pdf_path:
+            try:
+                os.remove(old_file)
+            except OSError:
+                pass
+        self._layout_pdf_pages()
+        self.preview_nb.select(0)
+        self._set_busy(False, f"页面版式预览就绪（共 {pages.count} 页，即 Word 分页排版）。"
+                              "单击左侧行可在版式中定位该段。")
+
+    def _pdf_fail(self, msg: str):
+        self._stop_progress()
+        lines = [ln.strip() for ln in msg.strip().splitlines() if ln.strip()]
+        cause = lines[-1][:110] if lines else "未知原因"
+        self._set_busy(False, f"页面版式预览不可用（{cause}），已回退文本预览")
+
+    def _close_pdf_preview(self):
+        if self._pdfpages is not None:
+            self._pdfpages.close()
+            self._pdfpages = None
+        self._pdf_geo = None
+        self._page_imgs = []
+        self._page_items = []
+        self.pdf_canvas.delete("all")
+        self.pdf_canvas.create_text(20, 24, anchor="nw", fill="#dddddd",
+                                    font=("Microsoft YaHei UI", 10),
+                                    text="正在生成 Word 版式预览…（需几秒，可先用文本页）")
+        if self._pdf_file:
+            f = self._pdf_file
+            self._pdf_file = None
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
+    def _layout_pdf_pages(self):
+        c = self.pdf_canvas
+        c.delete("all")
+        self._page_items = []
+        n = self._pdfpages.count if self._pdfpages else 0
+        self._page_imgs = [None] * n  # None=未渲染, False=渲染失败
+        if not self._pdfpages:
+            return
+        n = self._pdfpages.count
+        pw = max(240, min(640, c.winfo_width() - 36))
+        self._pdf_layout_w = c.winfo_width()
+        ph = int(self._pdfpages.page_h * pw / self._pdfpages.page_w)
+        self._pdf_geo = (pw, ph)
+        m = 12
+        for i in range(n):
+            y = m + i * (ph + m)
+            it_img = c.create_image(m, y, anchor="nw", state="hidden")
+            c.create_text(m, y + ph + 10, text=f"第 {i + 1} / {n} 页",
+                          anchor="nw", fill="#cccccc", font=("Microsoft YaHei UI", 8))
+            self._page_items.append(it_img)
+        c.configure(scrollregion=(0, 0, pw + 2 * m, n * (ph + m) + m))
+        self._render_visible_pages()
+
+    def _on_pdf_resize(self, _e=None):
+        if not self._pdfpages or not self._pdf_geo:
+            return
+        if abs(self.pdf_canvas.winfo_width() - self._pdf_layout_w) > 30:
+            f0 = self.pdf_canvas.yview()[0]  # 重排后保持阅读位置
+            self._layout_pdf_pages()
+            self.pdf_canvas.yview_moveto(f0)
+
+    def _on_pdf_yscroll(self, f0, f1):
+        self._pdf_sb.set(f0, f1)
+        self._render_visible_pages()
+
+    def _render_visible_pages(self, _e=None):
+        if not self._pdfpages or not self._pdf_geo:
+            return
+        pw, ph = self._pdf_geo
+        step = ph + 12
+        n = self._pdfpages.count
+        total = n * step + 12
+        f0, f1 = self.pdf_canvas.yview()
+        i0 = max(0, int(f0 * total // step) - 1)
+        i1 = min(n - 1, int(f1 * total // step) + 1)
+        for i in range(i0, i1 + 1):
+            if i >= len(self._page_imgs) or self._page_imgs[i] is not None:
+                continue
+            try:
+                photo = ImageTk.PhotoImage(self._pdfpages.render(i, pw))
+            except Exception:
+                self._page_imgs[i] = False
+                continue
+            self._photo_refs.append(photo)
+            self._page_imgs[i] = photo
+            self.pdf_canvas.itemconfigure(self._page_items[i], image=photo,
+                                          state="normal")
+
+    def _jump_pdf(self, idx: int):
+        """把页面版式跳到第 idx 段所在页：按锚文本搜页，空段沿前文找锚。"""
+        if not self._pdfpages or not self._pdf_geo:
+            return
+        anchor = ""
+        for j in range(min(idx, len(self._para_sources) - 1), -1, -1):
+            a = self._para_sources[j]["anchor"]
+            if a:
+                anchor = a
+                break
+        if not anchor:
+            return
+        page = self._pdfpages.find_page(anchor, start=self._pdf_last_page)
+        if page is None:
+            return
+        self._pdf_last_page = page
+        pw, ph = self._pdf_geo
+        frac = (12 + page * (ph + 12)) / (self._pdfpages.count * (ph + 12) + 12)
+        self.pdf_canvas.yview_moveto(max(0.0, frac))
 
     def _update_scope_ui(self):
         """范围勾选随筛选联动：勾了具体类别=自动勾选（标签写明后果）；
@@ -1071,7 +1237,6 @@ class App:
             self.原文.insert("end", "〔图片段落〕\n", ("placeholder",))
 
     def _blob_to_photo(self, blob: bytes):
-        from PIL import Image, ImageTk
         img = Image.open(io.BytesIO(blob))
         try:
             img.load(dpi=192)  # WMF/EMF 矢量图按 192dpi 点阵化
@@ -1107,11 +1272,21 @@ class App:
                    else "end-1c")
             self.原文.tag_add("current", start, end)
             self.原文.see(start)
+        self._jump_pdf(members[0])
         if not self._nav_syncing and self.nav_tree.exists(str(idx)):
             self._nav_syncing = True
-            self.nav_tree.selection_set(str(idx))
-            self.nav_tree.see(str(idx))
-            self._nav_syncing = False
+
+            def _sync_nav():
+                # 只做滚动定位，绝不在程序路径里对 nav_tree 做 selection_set——
+                # 本环境（Tk 8.6.13 + Panedwindow 布局）下 select/see 重入
+                # 该控件会在 Tcl C 层死循环卡死整个界面
+                try:
+                    self.nav_tree.see(iid)
+                finally:
+                    self._nav_syncing = False
+
+            iid = str(idx)
+            self.root.after_idle(_sync_nav)
 
     def _refresh_nav(self):
         """目录导航窗格：按标题类层级建树（文档标题/摘要标题为顶层，
