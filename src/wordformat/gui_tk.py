@@ -65,6 +65,15 @@ CN_TO_CATEGORY = {v: k for k, v in CAT_CN.items()}
 # VML 老式图片（python-docx 的 nsmap 无 v: 前缀，只能手工拼）
 _VML_IMAGEDATA = "{urn:schemas-microsoft-com:vml}imagedata"
 
+# 目录导航窗格的类别层级（不在表中的类别不进导航）
+NAV_LEVELS = {
+    "document_title": 0,
+    "abstract_chinese_title": 1, "abstract_english_title": 1,
+    "heading_level_1": 1, "heading_level_2": 2, "heading_level_3": 3,
+    "heading_mulu": 1, "heading_fulu": 1,
+    "references_title": 1, "acknowledgements_title": 1,
+}
+
 # 下拉框按标准论文内容顺序排列（找不到的类别追加在末尾）
 _CATEGORY_ORDER = [
     "document_title",
@@ -216,6 +225,8 @@ class App:
         self._para_sources: list[dict] = []   # 与 data 对齐的段落对象（富渲染/Word 定位用）
         self._photo_refs: list = []           # 防 PhotoImage 被垃圾回收
         self._para_marks: list[str] = []      # 每段在原文 Text 里的起始索引
+        self._tree_group_cache: dict[str, list[int]] = {}  # 树行 iid → 段落成员（表格折叠用）
+        self._nav_syncing = False             # 目录↔列表联动时防事件互调死循环
         self._busy = False
         self._progress_queue: queue.Queue | None = None
         self._progress_sink_id = None
@@ -304,6 +315,10 @@ class App:
         self.scope_cb = ttk.Checkbutton(bar, text="只排版筛选出的类别",
                                         variable=self.scope_var)
         self.scope_cb.pack(side="left", padx=(10, 0))
+        # 表格折叠：连续的表内段落折叠为一行（一个表格一个格式要求，整体改判）
+        self._collapse_tables = tk.BooleanVar(value=True)
+        ttk.Checkbutton(bar, text="表格折叠为一条", variable=self._collapse_tables,
+                        command=self._refresh_tree).pack(side="left", padx=(10, 0))
 
         pane = ttk.Panedwindow(tab, orient="horizontal")
         pane.pack(fill="both", expand=True)
@@ -344,6 +359,24 @@ class App:
         self.原文.tag_configure("table_sep", foreground="#C2C8D2",
                                 font=("Microsoft YaHei UI", 7))
         self.原文.tag_raise("current")  # 高亮永远盖过表格底纹
+
+        # ── 目录导航窗格（最右，像 Word 导航窗格）──────────
+        navf = ttk.Frame(pane)
+        pane.add(navf, weight=1)
+        ttk.Label(navf, text="目录导航（点击跳转）", foreground="#666666").pack(anchor="w")
+        self.nav_tree = ttk.Treeview(navf, show="tree", height=24, selectmode="browse")
+        nvsb = ttk.Scrollbar(navf, orient="vertical", command=self.nav_tree.yview)
+        self.nav_tree.configure(yscrollcommand=nvsb.set)
+        self.nav_tree.pack(fill="both", expand=True, side="left")
+        nvsb.pack(side="right", fill="y")
+        self.nav_tree.bind("<<TreeviewSelect>>", self._on_nav_select)
+
+        # 滚轮提速：默认每档 1 行太慢，统一改为 3 行（Word 手感）
+        for w in (self.tree, self.原文, self.nav_tree):
+            def _on_wheel(event, _w=w, _lines=3):
+                _w.yview_scroll(-_lines if event.delta > 0 else _lines, "units")
+                return "break"  # 拦下默认的 1 行滚动，避免叠加
+            w.bind("<MouseWheel>", _on_wheel)
 
     # ══ Tab2：格式方案 ═══════════════════════════════════
     def _build_tab2(self, tab):
@@ -850,25 +883,68 @@ class App:
             var.set(on)
         self._on_filter_change()
 
+    def _tree_groups(self) -> list[list[int]]:
+        """把 data 切分成树的显示单元：开启折叠时，连续的表内段落合并为一组
+        （一个表格一个格式要求）；关闭或无段落对象时每段一组。"""
+        if not self._collapse_tables.get() or not self._para_sources:
+            return [[i] for i in range(len(self.data))]
+        groups = []
+        i, n = 0, len(self.data)
+        while i < n:
+            if self._para_sources[i]["in_table"]:
+                j = i
+                while j < n and self._para_sources[j]["in_table"]:
+                    j += 1
+                groups.append(list(range(i, j)))
+                i = j
+            else:
+                groups.append([i])
+                i += 1
+        return groups
+
     def _refresh_tree(self):
-        """按类别筛选重建列表（iid 恒为段落原始序号，改判/套用不受筛选影响）。
-        多选打勾：勾了类别只显示那些类别；一个都没勾 = 全部显示。"""
+        """按类别筛选重建列表（iid 恒为该行首段的原始序号，改判/套用不受影响）。
+        多选打勾：勾了类别只显示那些类别；一个都没勾 = 全部显示。
+        表格组显示为一行，摘录带【表格·N段】标记。"""
         sel = self._selected_categories()
         self.tree.delete(*self.tree.get_children())
-        for i, item in enumerate(self.data):
-            cat = item["category"]
-            if sel and cat not in sel:
+        self._tree_group_cache = {}
+        for members in self._tree_groups():
+            start = members[0]
+            self._tree_group_cache[str(start)] = members
+            in_table = len(members) > 1 or (self._para_sources and self._para_sources[start]["in_table"])
+            if in_table:
+                rep = ("table_text"
+                       if any(self.data[m]["category"] == "table_text" for m in members)
+                       else self.data[start]["category"])
+            else:
+                rep = self.data[start]["category"]
+            if sel and rep not in sel:
                 continue
+            if in_table:
+                first_text = next((self.data[m].get("paragraph") or ""
+                                   for m in members if (self.data[m].get("paragraph") or "").strip()),
+                                  "")
+                excerpt = f"【表格·{len(members)}段】{first_text.strip()[:60]}"
+                score = min(self.data[m].get("score", 0) for m in members)
+                review = any(self.data[m].get("needs_review") for m in members)
+                idx_text = f"{start}–{members[-1]}" if len(members) > 1 else str(start)
+            else:
+                item = self.data[start]
+                excerpt = (item.get("paragraph") or "")[:80]
+                score = item.get("score", 0)
+                review = item.get("needs_review")
+                idx_text = str(start)
             tags = []
-            if item.get("needs_review"):
+            if review:
                 tags.append("review")
-            if cat in VOIDNODELIST:
+            if rep in VOIDNODELIST:
                 tags.append("void")
-            self.tree.insert("", "end", iid=str(i), values=(
-                i, _cat_cn(cat), f"{item.get('score', 0):.2f}",
-                "是" if item.get("needs_review") else "",
-                (item.get("paragraph") or "")[:80],
+            self.tree.insert("", "end", iid=str(start), values=(
+                idx_text, _cat_cn(rep), f"{score:.2f}",
+                "是" if review else "", excerpt,
             ), tags=tags)
+        self._refresh_nav()
 
     def _build_para_sources(self):
         """重开原文档按识别顺序取段落对象，供富渲染与 Word 定位使用。
@@ -1022,13 +1098,58 @@ class App:
         if not sel or not self.data:
             return
         idx = int(sel[0])
+        members = self._tree_group_cache.get(sel[0], [idx])
         self.原文.tag_remove("current", "1.0", "end")
-        if self._para_marks and idx < len(self._para_marks):
-            start = self._para_marks[idx]
-            end = (self._para_marks[idx + 1]
-                   if idx + 1 < len(self._para_marks) else "end-1c")
+        if self._para_marks and members[0] < len(self._para_marks):
+            start = self._para_marks[members[0]]
+            end_at = members[-1] + 1  # 折叠组：高亮整张表格
+            end = (self._para_marks[end_at] if end_at < len(self._para_marks)
+                   else "end-1c")
             self.原文.tag_add("current", start, end)
             self.原文.see(start)
+        if not self._nav_syncing and self.nav_tree.exists(str(idx)):
+            self._nav_syncing = True
+            self.nav_tree.selection_set(str(idx))
+            self.nav_tree.see(str(idx))
+            self._nav_syncing = False
+
+    def _refresh_nav(self):
+        """目录导航窗格：按标题类层级建树（文档标题/摘要标题为顶层，
+        一二三级标题逐级缩进，附录/参考文献/致谢等专项标题为一级）。"""
+        self.nav_tree.delete(*self.nav_tree.get_children())
+        last_at: dict[int, str] = {}
+        for i, item in enumerate(self.data):
+            lv = NAV_LEVELS.get(item["category"])
+            if lv is None:
+                continue
+            shallower = [l for l in last_at if l < lv]
+            parent = last_at[max(shallower)] if shallower else ""
+            text = ((item.get("paragraph") or "").strip() or _cat_cn(item["category"]))[:48]
+            self.nav_tree.insert(parent, "end", iid=str(i), text=text, open=True)
+            last_at = {k: v for k, v in last_at.items() if k <= lv}
+            last_at[lv] = str(i)
+
+    def _on_nav_select(self, _event=None):
+        if self._nav_syncing:
+            return
+        sel = self.nav_tree.selection()
+        if not sel:
+            return
+        iid = sel[0]
+        if self.tree.exists(iid):
+            self.tree.see(iid)
+            self.tree.selection_set(iid)  # 触发 _on_tree_select 完成右侧高亮
+        else:
+            # 该段被筛选隐藏：临时直接高亮原文，不改左侧列表
+            idx = int(iid)
+            self.原文.tag_remove("current", "1.0", "end")
+            if self._para_marks and idx < len(self._para_marks):
+                start = self._para_marks[idx]
+                end_at = idx + 1
+                end = (self._para_marks[end_at] if end_at < len(self._para_marks)
+                       else "end-1c")
+                self.原文.tag_add("current", start, end)
+                self.原文.see(start)
 
     # ── 改判 ─────────────────────────────────────────────
     def _close_cat_editor(self):
@@ -1049,7 +1170,8 @@ class App:
         x, y, w, h = self.tree.bbox(row_id, col)
         # 编辑器以列表为父容器、依附在单元格原位（坐标即列表内坐标）
         cb = ttk.Combobox(self.tree, values=CN_LIST_ORDERED, state="readonly")
-        cb.set(_cat_cn(self.data[idx]["category"]))
+        current_cn = self.tree.item(row_id, "values")[1]  # 显示的类别（表格组为代表类别）
+        cb.set(current_cn)
         cb.place(in_=self.tree, x=x, y=y, width=w, height=h)
         cb.focus_set()
         self._cat_editor = cb
@@ -1064,15 +1186,26 @@ class App:
             new_en = CN_TO_CATEGORY.get(cn)
             if not new_en or new_en == self.data[idx]["category"]:
                 return
-            self.data[idx]["category"] = new_en
-            self.data[idx]["needs_review"] = False
-            self.data[idx]["comment"] = "人工改判"
+            members = self._tree_group_cache.get(row_id, [idx])
+            for m in members:
+                # 表格整体改判：图内图片段保持图片类，不跟着降级
+                if (self.data[m]["category"] == "figure_image"
+                        and new_en != "figure_image"):
+                    continue
+                self.data[m]["category"] = new_en
+                self.data[m]["needs_review"] = False
+                self.data[m]["comment"] = "人工改判"
             values = list(self.tree.item(row_id, "values"))
             values[1] = _cat_cn(new_en)
             values[3] = ""
             tags = ["void"] if new_en in VOIDNODELIST else []
             self.tree.item(row_id, values=values, tags=tags)
-            self.status_var.set(f"已改判第 {idx} 段 → {_cat_cn(new_en)}")
+            self._refresh_nav()
+            if len(members) > 1:
+                self.status_var.set(
+                    f"已整体改判第 {members[0]}–{members[-1]} 段（{len(members)} 段）→ {_cat_cn(new_en)}")
+            else:
+                self.status_var.set(f"已改判第 {idx} 段 → {_cat_cn(new_en)}")
 
         def cancel(_event=None):
             self._close_cat_editor()
