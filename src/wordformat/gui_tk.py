@@ -9,6 +9,7 @@ Tab2 格式方案：
 全部本地离线运行。
 """
 import copy
+import io
 import json
 import os
 import queue
@@ -21,9 +22,15 @@ from pathlib import Path
 
 import yaml
 
+from docx import Document
+from docx.oxml.ns import qn
+
 from wordformat.base import DocxBase
 from wordformat.pipeline.orchestrate import auto_format_thesis_document
 from wordformat.settings import VOIDNODELIST
+from wordformat.structure.paragraph_walker import iter_document_paragraphs
+from wordformat.utils.omml_text import omml_to_text
+from wordformat.utils.word_view import open_in_word
 
 # ── 类别全集（模型标签 + 结构规则标签）─────────────────────
 MODEL_LABELS = [
@@ -54,6 +61,9 @@ CAT_CN = {
     "footer": "页脚", "figure_image": "图片段落",
 }
 CN_TO_CATEGORY = {v: k for k, v in CAT_CN.items()}
+
+# VML 老式图片（python-docx 的 nsmap 无 v: 前缀，只能手工拼）
+_VML_IMAGEDATA = "{urn:schemas-microsoft-com:vml}imagedata"
 
 # 下拉框按标准论文内容顺序排列（找不到的类别追加在末尾）
 _CATEGORY_ORDER = [
@@ -202,6 +212,10 @@ class App:
 
         self.data: list[dict] = []
         self.docx_path: str | None = None
+        self._source_docx: str | None = None  # 识别时的原文档（套用后 docx_path 会指向输出）
+        self._para_sources: list[dict] = []   # 与 data 对齐的段落对象（富渲染/Word 定位用）
+        self._photo_refs: list = []           # 防 PhotoImage 被垃圾回收
+        self._para_marks: list[str] = []      # 每段在原文 Text 里的起始索引
         self._busy = False
         self._progress_queue: queue.Queue | None = None
         self._progress_sink_id = None
@@ -267,6 +281,9 @@ class App:
         self.save_btn = ttk.Button(bar, text="💾 保存结构 JSON", command=self.save_json,
                                    state="disabled")
         self.save_btn.pack(side="left", padx=8)
+        self.word_btn = ttk.Button(bar, text="📖 在 Word 中查看选中段", command=self.view_in_word,
+                                   state="disabled")
+        self.word_btn.pack(side="left", padx=8)
         ttk.Label(bar, text="类别筛选:").pack(side="left", padx=(14, 2))
         # 多选打勾：Menubutton 弹出可勾选菜单，可一次勾选多个类别
         self._filter_sel = {CN_TO_CATEGORY[cn]: tk.BooleanVar(value=False)
@@ -322,6 +339,11 @@ class App:
         zsb.pack(side="right", fill="y")
         self.原文.tag_configure("current", background="#FFE69C")
         self.原文.tag_configure("placeholder", foreground="#999999")
+        self.原文.tag_configure("math", foreground="#5B2D8E")
+        self.原文.tag_configure("in_table", background="#EEF1F5")
+        self.原文.tag_configure("table_sep", foreground="#C2C8D2",
+                                font=("Microsoft YaHei UI", 7))
+        self.原文.tag_raise("current")  # 高亮永远盖过表格底纹
 
     # ══ Tab2：格式方案 ═══════════════════════════════════
     def _build_tab2(self, tab):
@@ -742,6 +764,7 @@ class App:
             messagebox.showwarning("提示", "请先选择有效的 Word 文件")
             return
         self.docx_path = docx
+        self._source_docx = docx
         self._start_task("detect", "识别中…（模型加载与推理，进度见状态栏）",
                          self._detect_worker, (docx,))
 
@@ -784,8 +807,10 @@ class App:
 
     def _populate(self, data: list[dict]):
         self.data = data
+        self._build_para_sources()
         self._refresh_tree()
         self._fill_original_text(data)
+        self.word_btn.configure(state="normal")
         n_review = sum(1 for d in data if d.get("needs_review"))
         self._set_busy(False, f"识别完成：{len(data)} 段，其中 {n_review} 段建议人工复核（黄色行）。"
                               "单击行可在右侧原文定位，双击「类别」单元格可改判。")
@@ -845,11 +870,43 @@ class App:
                 (item.get("paragraph") or "")[:80],
             ), tags=tags)
 
+    def _build_para_sources(self):
+        """重开原文档按识别顺序取段落对象，供富渲染与 Word 定位使用。
+        任何失败（文件没了/打开异常/段数对不上）都留空，界面回退纯文本显示，
+        识别结果本身不受影响。"""
+        self._para_sources = []
+        path = self._source_docx
+        if not path or not Path(path).exists():
+            return
+        try:
+            doc = Document(path)
+            paras = iter_document_paragraphs(doc)
+        except Exception:
+            return
+        if len(paras) != len(self.data):
+            return
+        self._para_sources = [
+            {"para": p, "in_table": in_table,
+             "anchor": " ".join((p.text or "").split())}
+            for p, in_table in paras]
+
     def _fill_original_text(self, data: list[dict]):
-        """右侧原文窗：一段一行（空段/图片段/公式段显示灰色占位）。"""
+        """右侧原文窗：有段落对象时富渲染（图片嵌入/公式线性文本/表格底纹），
+        否则回退纯文本一段一行。"""
+        self._photo_refs = []
+        self._para_marks = []
         self.原文.configure(state="normal")
         self.原文.delete("1.0", "end")
+        if self._para_sources:
+            self._fill_rich(data)
+        else:
+            self._fill_plain(data)
+        self.原文.configure(state="disabled")
+
+    def _fill_plain(self, data: list[dict]):
+        """回退显示：与旧版一致，一段一行（空段/图片段/公式段显示灰色占位）。"""
         for item in data:
+            self._para_marks.append(self.原文.index("end-1c"))
             text = (item.get("paragraph") or "").strip()
             if text:
                 self.原文.insert("end", text + "\n")
@@ -859,6 +916,104 @@ class App:
                 self.原文.insert("end", "〔公式段落〕\n", ("placeholder",))
             else:
                 self.原文.insert("end", "〔空段落〕\n", ("placeholder",))
+
+    def _fill_rich(self, data: list[dict]):
+        prev_tr = None
+        for i, (item, src) in enumerate(zip(data, self._para_sources)):
+            self._para_marks.append(self.原文.index("end-1c"))
+            para = src["para"]
+            if src["in_table"]:
+                tr = para._p.getparent().getparent()  # w:p → w:tc → w:tr
+                if tr is not prev_tr and i > 0:
+                    self.原文.insert("end", "· " * 26 + "\n", ("table_sep",))
+                prev_tr = tr
+                self.原文.insert("end", "▎ ", ("in_table",))
+            wrote = False
+            for kind, payload in self._para_segments(para):
+                if kind == "text":
+                    if payload.strip():
+                        self.原文.insert("end", payload,
+                                        ("in_table",) if src["in_table"] else ())
+                        wrote = True
+                elif kind == "math":
+                    if payload:
+                        self.原文.insert("end", f" ⟨{payload}⟩", ("math",))
+                        wrote = True
+                elif kind == "image":
+                    if wrote:
+                        self.原文.insert("end", "\n")
+                    self._insert_image(para, payload)
+                    wrote = True
+            if not wrote:
+                label = {"figure_image": "〔图片段落〕", "equation_para": "〔公式段落〕"}.get(
+                    item["category"], "〔空段落〕")
+                self.原文.insert("end", label, ("placeholder",))
+            self.原文.insert("end", "\n")
+
+    def _para_segments(self, para):
+        """按文档顺序产出段落内容片段：(kind, payload)。
+        kind=text 普通文字 / math 公式线性文本 / image 含图 run 元素。"""
+        for child in para._p:
+            tag = child.tag
+            if tag == qn("m:oMathPara"):
+                for om in child.findall(qn("m:oMath")):
+                    yield "math", omml_to_text(om)
+            elif tag == qn("m:oMath"):
+                yield "math", omml_to_text(child)
+            elif tag == qn("w:r"):
+                yield from self._run_segments(child)
+            elif tag == qn("w:hyperlink"):
+                for r in child.findall(qn("w:r")):
+                    yield from self._run_segments(r)
+
+    @staticmethod
+    def _run_segments(r_elem):
+        for t in r_elem.findall(qn("w:t")):
+            if t.text:
+                yield "text", t.text
+        # 兼容 DrawingML（常规图片）与 VML（老格式）两种图
+        if (r_elem.find(".//" + qn("a:blip")) is not None
+                or r_elem.find(".//" + _VML_IMAGEDATA) is not None):
+            yield "image", r_elem
+
+    def _insert_image(self, para, run_elem):
+        """把 run 里的图片渲染进文本框（等比缩到面板宽），失败回退灰色占位。"""
+        rids = [b.get(qn("r:embed")) for b in run_elem.findall(".//" + qn("a:blip"))]
+        rids += [v.get(qn("r:id")) for v in run_elem.findall(".//" + _VML_IMAGEDATA)]
+        for rid in filter(None, rids):
+            try:
+                blob = para.part.related_parts[rid].blob
+                photo = self._blob_to_photo(blob)
+            except Exception:
+                photo = None
+            if photo is not None:
+                self.原文.image_create("end-1c", image=photo)
+                self.原文.insert("end", "\n")
+            else:
+                self.原文.insert("end", "〔图片无法预览〕\n", ("placeholder",))
+        if not rids:
+            self.原文.insert("end", "〔图片段落〕\n", ("placeholder",))
+
+    def _blob_to_photo(self, blob: bytes):
+        from PIL import Image, ImageTk
+        img = Image.open(io.BytesIO(blob))
+        try:
+            img.load(dpi=192)  # WMF/EMF 矢量图按 192dpi 点阵化
+        except TypeError:
+            img.load()
+        max_w = self._preview_width()
+        if img.width > max_w:
+            img = img.resize((max_w, max(1, round(img.height * max_w / img.width))))
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGB")
+        photo = ImageTk.PhotoImage(img)
+        self._photo_refs.append(photo)
+        return photo
+
+    def _preview_width(self) -> int:
+        w = self.原文.winfo_width()
+        max_w = (w - 30) if w > 80 else 480  # 扣除 padding 与滚动条
+        return max(120, min(max_w, 640))
         self.原文.configure(state="disabled")
 
     # ── 列表 ↔ 原文联动 ───────────────────────────────────
@@ -868,9 +1023,12 @@ class App:
             return
         idx = int(sel[0])
         self.原文.tag_remove("current", "1.0", "end")
-        line = idx + 1  # 原文窗一段一行
-        self.原文.tag_add("current", f"{line}.0", f"{line}.end")
-        self.原文.see(f"{max(line - 1, 1)}.0")
+        if self._para_marks and idx < len(self._para_marks):
+            start = self._para_marks[idx]
+            end = (self._para_marks[idx + 1]
+                   if idx + 1 < len(self._para_marks) else "end-1c")
+            self.原文.tag_add("current", start, end)
+            self.原文.see(start)
 
     # ── 改判 ─────────────────────────────────────────────
     def _close_cat_editor(self):
@@ -923,16 +1081,25 @@ class App:
         cb.bind("<Return>", confirm)
         cb.bind("<Escape>", cancel)
 
-    # ── 列表 ↔ 原文联动 ───────────────────────────────────
-    def _on_tree_select(self, _event=None):
-        sel = self.tree.selection()
-        if not sel or not self.data:
+    # ── Word 联动 ────────────────────────────────────────
+    def view_in_word(self):
+        if not self.data or not self._source_docx:
+            messagebox.showwarning("提示", "请先识别")
             return
-        idx = int(sel[0])
-        self.原文.tag_remove("current", "1.0", "end")
-        line = idx + 1  # 原文窗一段一行
-        self.原文.tag_add("current", f"{line}.0", f"{line}.end")
-        self.原文.see(f"{max(line - 1, 1)}.0")
+        anchor = ""
+        sel = self.tree.selection()
+        if sel:
+            idx = int(sel[0])
+            if idx < len(self._para_sources) and self._para_sources[idx]:
+                anchor = self._para_sources[idx]["anchor"]
+            else:
+                anchor = " ".join((self.data[idx].get("paragraph") or "").split())
+        try:
+            msg = open_in_word(self._source_docx, anchor)
+        except Exception as e:
+            messagebox.showwarning("Word 联动", f"无法调用 Word：{e}")
+            return
+        self.status_var.set(msg)
 
     # ── 保存 / 套用 ──────────────────────────────────────
     def save_json(self):
@@ -1009,6 +1176,7 @@ class App:
         self.detect_btn.configure(state=state)
         self.apply_btn.configure(state="normal" if (not busy and self.data) else "disabled")
         self.save_btn.configure(state="normal" if (not busy and self.data) else "disabled")
+        self.word_btn.configure(state="normal" if (not busy and self.data) else "disabled")
         self.status_var.set(status)
 
 
