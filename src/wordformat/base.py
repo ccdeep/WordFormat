@@ -3,7 +3,9 @@
 # @Author  : afish
 # @File    : DocxBase.py
 
+import io
 import re
+import zipfile
 
 from docx import Document
 from loguru import logger
@@ -156,11 +158,36 @@ ABSTRACT_CONTENT_GATE_ALLOWED_PREV = {
 ABSTRACT_TITLE_MAXLEN = 120
 
 
+def _open_document(docx_file):
+    """python-docx 按包内 [Content_Types].xml 严格校验，部分 WPS/转换工具产出的
+    .docx 把主部件误标为 docm（macroEnabled）类型会被拒读；这里在内存中把该
+    类型改回标准值再打开，原文件不动，宏工程（如有）不受影响。"""
+    try:
+        return Document(docx_file)
+    except ValueError:
+        with zipfile.ZipFile(docx_file) as z:
+            parts = {n: z.read(n) for n in z.namelist()}
+        content_types = parts.get("[Content_Types].xml")
+        if content_types is None or b"macroEnabled" not in content_types:
+            raise
+        parts["[Content_Types].xml"] = content_types.replace(
+            b"application/vnd.ms-word.document.macroEnabled.main+xml",
+            b"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml",
+        )
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for name, data in parts.items():
+                z.writestr(name, data)
+        buf.seek(0)
+        logger.info(f"检测到 docm 内容类型误标为 .docx，已在内存中纠正后打开：{docx_file}")
+        return Document(buf)
+
+
 class DocxBase:
     def __init__(self, docx_file, configpath):
         self.re_dict = {}
         self.docx_file = docx_file
-        self.document = Document(docx_file)
+        self.document = _open_document(docx_file)
         """
         以下注释掉的代码用于未来加载配置文件
         """

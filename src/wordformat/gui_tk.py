@@ -711,10 +711,14 @@ class App:
     def _task_fail_handler(self, msg: str):
         self._stop_progress()
         self._set_busy(False, "任务失败")
-        if self._task_kind == "detect":
-            messagebox.showerror("识别失败", msg)
-        else:
-            messagebox.showerror("套用失败", msg)
+        title = "识别失败" if self._task_kind == "detect" else "套用失败"
+        # 弹窗只给一句话原因，完整 traceback 放分隔线下方供排查
+        lines = [ln.strip() for ln in msg.strip().splitlines() if ln.strip()]
+        cause = lines[-1] if lines else msg
+        if "is not a Word file" in cause:
+            cause = ("该文件不是有效的 .docx 文档（可能是 .doc 老格式改了扩展名，"
+                     f"或文件已损坏），请用 Word 打开后另存为 .docx 再试。\n{cause}")
+        messagebox.showerror(title, f"{cause}\n\n{'—' * 30}\n完整错误信息：\n{msg}")
 
     # ── 识别 ─────────────────────────────────────────────
     def browse_docx(self):
